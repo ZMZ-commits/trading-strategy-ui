@@ -1,7 +1,8 @@
+import { API_BASE } from './config'
 import type { RunResult } from '../types'
 
 export async function runStrategy(id: string, config: Record<string, unknown> = {}): Promise<RunResult> {
-  const res = await fetch(`/strategies/${id}/run`, {
+  const res = await fetch(`${API_BASE}/strategies/${id}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ config }),
@@ -13,7 +14,7 @@ export async function runStrategy(id: string, config: Record<string, unknown> = 
 }
 
 export async function getStrategyStatus(id: string): Promise<RunResult> {
-  const res = await fetch(`/strategies/${id}/status`)
+  const res = await fetch(`${API_BASE}/strategies/${id}/status`)
   if (res.status === 404) throw new Error('Strategy not found')
   if (!res.ok) throw new Error('Failed to get status')
   return res.json()

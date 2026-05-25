@@ -1,13 +1,14 @@
+import { API_BASE } from './config'
 import type { Strategy } from '../types'
 
 export async function getStrategies(): Promise<Strategy[]> {
-  const res = await fetch('/strategies')
+  const res = await fetch(`${API_BASE}/strategies`)
   if (!res.ok) throw new Error('Failed to fetch strategies')
   return res.json()
 }
 
 export async function createStrategy(name: string): Promise<Strategy> {
-  const res = await fetch('/strategies', {
+  const res = await fetch(`${API_BASE}/strategies`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -18,6 +19,6 @@ export async function createStrategy(name: string): Promise<Strategy> {
 }
 
 export async function deleteStrategy(id: string): Promise<void> {
-  const res = await fetch(`/strategies/${id}`, { method: 'DELETE' })
+  const res = await fetch(`${API_BASE}/strategies/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Failed to delete strategy')
 }

@@ -8,7 +8,7 @@ vi.mock('../api/strategies')
 describe('CreateStrategyModal', () => {
   const onClose = vi.fn()
   const onCreated = vi.fn()
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('save is disabled when name is empty', () => {
     render(<CreateStrategyModal onClose={onClose} onCreated={onCreated} />)

@@ -11,7 +11,7 @@ const MOCK: import('../types').RunResult = {
 }
 
 describe('useStrategyStatus', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns null when strategyId is null', () => {
     const { result } = renderHook(() => useStrategyStatus(null))

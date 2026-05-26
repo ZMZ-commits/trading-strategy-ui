@@ -8,7 +8,7 @@ vi.mock('../api/stocks')
 const BARS = [{ timestamp: '2026-01-01', open: 180, high: 182, low: 179, close: 181, volume: 5e7 }]
 
 describe('useStockData', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('starts loading and returns data', async () => {
     vi.mocked(api.getHistory).mockResolvedValue({ ticker: 'AAPL', range: '1M', bars: BARS })

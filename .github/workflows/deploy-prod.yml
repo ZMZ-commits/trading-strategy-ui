@@ -1,4 +1,4 @@
-name: Deploy Frontend → Cloudflare Pages
+name: Deploy → Prod (Cloudflare Pages)
 
 on:
   push:
@@ -14,31 +14,22 @@ on:
 
 jobs:
   deploy:
-    name: Build and deploy to Cloudflare Pages
+    name: Deploy to production
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build
-        run: npm run build
+      - run: npm install
+      - run: npm run build
         env:
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_PROD }}
+      - uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: trading-strategy-ui
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          branch: main

@@ -1,0 +1,35 @@
+name: Deploy → Dev (Cloudflare Pages)
+
+on:
+  push:
+    branches: [deployment]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package*.json'
+      - 'vite.config.ts'
+      - 'tailwind.config.ts'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_DEV }}
+      - uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: trading-strategy-ui
+          directory: dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          branch: deployment

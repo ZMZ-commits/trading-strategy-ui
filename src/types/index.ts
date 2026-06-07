@@ -1,4 +1,4 @@
-export type Range = '1D' | '1W' | '1M' | '1Y' | '5Y' | 'MAX'
+export type Range = '30M' | '1H' | '5H' | '1D' | '1W' | '1M' | '1Y' | '5Y' | 'MAX'
 export type StrategyStatus = 'idle' | 'running' | 'completed' | 'error'
 
 export interface Strategy {

@@ -15,6 +15,9 @@ interface Props {
 const fmtAxis = (ts: string, range: Range) => {
   const d = new Date(ts)
   switch (range) {
+    case '30M':
+    case '1H':
+    case '5H':
     case '1D':
       return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     case '1W':
@@ -34,7 +37,7 @@ const fmtAxis = (ts: string, range: Range) => {
 // Tooltip label — include the time on intraday ranges, the year on the rest.
 const fmtTooltip = (ts: string, range: Range) => {
   const d = new Date(ts)
-  if (range === '1D' || range === '1W') {
+  if (range === '30M' || range === '1H' || range === '5H' || range === '1D' || range === '1W') {
     return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })

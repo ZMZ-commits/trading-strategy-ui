@@ -10,8 +10,35 @@ interface Props {
   onRangeChange: (r: Range) => void
 }
 
-const fmtDate = (ts: string) =>
-  new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+// X-axis tick labels — adapt the granularity to the selected range so we
+// don't repeat the same date on intraday charts or drop the year on long ones.
+const fmtAxis = (ts: string, range: Range) => {
+  const d = new Date(ts)
+  switch (range) {
+    case '1D':
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    case '1W':
+      return d.toLocaleDateString('en-US', { weekday: 'short' })
+    case '1M':
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    case '1Y':
+      return d.toLocaleDateString('en-US', { month: 'short' })
+    case '5Y':
+    case 'MAX':
+      return String(d.getFullYear())
+    default:
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+}
+
+// Tooltip label — include the time on intraday ranges, the year on the rest.
+const fmtTooltip = (ts: string, range: Range) => {
+  const d = new Date(ts)
+  if (range === '1D' || range === '1W') {
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
 export function StockChart({ ticker, range, onRangeChange }: Props) {
   const { data, loading, error } = useStockData(ticker, range)
@@ -117,11 +144,12 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
               <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
               <XAxis
                 dataKey="timestamp"
-                tickFormatter={fmtDate}
+                tickFormatter={(ts) => fmtAxis(String(ts), range)}
                 tick={{ fontSize: 10, fill: '#6b7280' }}
                 tickLine={false}
                 axisLine={false}
                 interval="preserveStartEnd"
+                minTickGap={40}
               />
               <YAxis
                 domain={['auto', 'auto']}
@@ -133,7 +161,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
               />
               <Tooltip
                 contentStyle={{ backgroundColor: '#161b22', border: '1px solid #21262d', borderRadius: 6, fontSize: 12 }}
-                labelFormatter={fmtDate}
+                labelFormatter={(ts) => fmtTooltip(String(ts), range)}
                 formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'Close']}
               />
               <Area

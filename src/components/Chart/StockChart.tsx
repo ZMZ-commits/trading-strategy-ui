@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceArea } from 'recharts'
 import { RangeTabs } from './RangeTabs'
 import { useStockData } from '../../hooks/useStockData'
+import { useLiveTicks } from '../../hooks/useLiveTicks'
 import type { Range, OHLCBar } from '../../types'
 
 interface Props {
@@ -15,6 +16,8 @@ interface Props {
 const fmtAxis = (ts: string, range: Range) => {
   const d = new Date(ts)
   switch (range) {
+    case 'NOW':
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })
     case '30M':
     case '1H':
     case '5H':
@@ -37,6 +40,9 @@ const fmtAxis = (ts: string, range: Range) => {
 // Tooltip label — include the time on intraday ranges, the year on the rest.
 const fmtTooltip = (ts: string, range: Range) => {
   const d = new Date(ts)
+  if (range === 'NOW') {
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+  }
   if (range === '30M' || range === '1H' || range === '5H' || range === '1D' || range === '1W') {
     return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
@@ -44,19 +50,26 @@ const fmtTooltip = (ts: string, range: Range) => {
 }
 
 export function StockChart({ ticker, range, onRangeChange }: Props) {
+  const isLive = range === 'NOW'
   const { data, loading, error } = useStockData(ticker, range)
+  const { ticks, connected } = useLiveTicks(ticker, isLive)
 
   const [refLeft, setRefLeft] = useState<string | null>(null)
   const [refRight, setRefRight] = useState<string | null>(null)
   const [selecting, setSelecting] = useState(false)
   const [zoomedData, setZoomedData] = useState<OHLCBar[] | null>(null)
 
-  const chartData = zoomedData ?? data
+  // Live ticks → chart bars (price as the close).
+  const liveData: OHLCBar[] = ticks.map(t => ({
+    timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
+  }))
+
+  const chartData = isLive ? liveData : (zoomedData ?? data)
   const latest = chartData[chartData.length - 1]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleMouseDown = (e: any) => {
-    if (!e?.activeLabel) return
+    if (isLive || !e?.activeLabel) return
     setSelecting(true)
     setRefLeft(String(e.activeLabel))
     setRefRight(null)
@@ -91,6 +104,89 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
     setSelecting(false)
   }
 
+  const chartEl = (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart
+        data={chartData}
+        margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+      >
+        <defs>
+          <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
+        <XAxis
+          dataKey="timestamp"
+          tickFormatter={(ts) => fmtAxis(String(ts), range)}
+          tick={{ fontSize: 10, fill: '#6b7280' }}
+          tickLine={false}
+          axisLine={false}
+          interval="preserveStartEnd"
+          minTickGap={40}
+        />
+        <YAxis
+          domain={['auto', 'auto']}
+          tick={{ fontSize: 10, fill: '#6b7280' }}
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={v => `$${Number(v).toFixed(0)}`}
+          width={55}
+        />
+        <Tooltip
+          contentStyle={{ backgroundColor: '#161b22', border: '1px solid #21262d', borderRadius: 6, fontSize: 12 }}
+          labelFormatter={(ts) => fmtTooltip(String(ts), range)}
+          formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'Price']}
+        />
+        <Area
+          type="monotone"
+          dataKey="close"
+          stroke="#3b82f6"
+          strokeWidth={1.5}
+          fill="url(#priceGrad)"
+          dot={false}
+          activeDot={{ r: 3 }}
+          isAnimationActive={!isLive}
+        />
+        {refLeft && refRight && (
+          <ReferenceArea
+            x1={refLeft}
+            x2={refRight}
+            fill="#3b82f6"
+            fillOpacity={0.12}
+            stroke="#3b82f6"
+            strokeOpacity={0.4}
+            strokeDasharray="4 2"
+          />
+        )}
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+
+  const status = (msg: string, tone: 'muted' | 'live' | 'error' = 'muted') => (
+    <div className={`h-full flex items-center justify-center text-sm ${
+      tone === 'error' ? 'text-red-400' : tone === 'live' ? 'text-green-400' : 'text-gray-600'
+    }`}>
+      {msg}
+    </div>
+  )
+
+  const body = (() => {
+    if (isLive) {
+      if (!connected && chartData.length === 0) return status('Connecting to live feed…')
+      if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
+      return chartEl
+    }
+    if (loading) return status('Loading…')
+    if (error) return status(error, 'error')
+    if (chartData.length === 0) return status('Search for a ticker above to load data')
+    return chartEl
+  })()
+
   return (
     <div className="flex flex-col flex-1 min-h-0 p-4 bg-panel border-b border-border">
       <div className="flex items-center justify-between mb-3">
@@ -100,7 +196,15 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
           {latest && (
             <span className="text-lg text-gray-300">${latest.close.toFixed(2)}</span>
           )}
-          {zoomedData && (
+          {isLive && (
+            <span className="flex items-center gap-1.5 text-xs font-medium">
+              <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
+              <span className={connected ? 'text-green-400' : 'text-gray-500'}>
+                {connected ? 'LIVE' : 'connecting'}
+              </span>
+            </span>
+          )}
+          {zoomedData && !isLive && (
             <button
               onClick={resetZoom}
               className="px-2.5 py-1 text-xs rounded bg-gray-800 border border-border hover:border-blue-600/60 hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors"
@@ -112,7 +216,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
 
         {/* Range controls */}
         <div className="flex items-center gap-3">
-          {!zoomedData && !loading && chartData.length > 0 && (
+          {!zoomedData && !isLive && !loading && chartData.length > 0 && (
             <span className="text-[10px] text-gray-700 hidden sm:block">drag to zoom</span>
           )}
           <RangeTabs active={range} onChange={r => { resetZoom(); onRangeChange(r) }} />
@@ -123,78 +227,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
         className="flex-1 min-h-0 select-none"
         style={{ cursor: selecting ? 'col-resize' : 'default' }}
       >
-        {loading && (
-          <div className="h-full flex items-center justify-center text-gray-600 text-sm">Loading…</div>
-        )}
-        {error && (
-          <div className="h-full flex items-center justify-center text-red-400 text-sm">{error}</div>
-        )}
-        {!loading && !error && chartData.length > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={chartData}
-              margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-            >
-              <defs>
-                <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
-              <XAxis
-                dataKey="timestamp"
-                tickFormatter={(ts) => fmtAxis(String(ts), range)}
-                tick={{ fontSize: 10, fill: '#6b7280' }}
-                tickLine={false}
-                axisLine={false}
-                interval="preserveStartEnd"
-                minTickGap={40}
-              />
-              <YAxis
-                domain={['auto', 'auto']}
-                tick={{ fontSize: 10, fill: '#6b7280' }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={v => `$${Number(v).toFixed(0)}`}
-                width={55}
-              />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#161b22', border: '1px solid #21262d', borderRadius: 6, fontSize: 12 }}
-                labelFormatter={(ts) => fmtTooltip(String(ts), range)}
-                formatter={(v: unknown) => [`$${Number(v).toFixed(2)}`, 'Close']}
-              />
-              <Area
-                type="monotone"
-                dataKey="close"
-                stroke="#3b82f6"
-                strokeWidth={1.5}
-                fill="url(#priceGrad)"
-                dot={false}
-                activeDot={{ r: 3 }}
-              />
-              {refLeft && refRight && (
-                <ReferenceArea
-                  x1={refLeft}
-                  x2={refRight}
-                  fill="#3b82f6"
-                  fillOpacity={0.12}
-                  stroke="#3b82f6"
-                  strokeOpacity={0.4}
-                  strokeDasharray="4 2"
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-        {!loading && !error && chartData.length === 0 && (
-          <div className="h-full flex items-center justify-center text-gray-600 text-sm">
-            Search for a ticker above to load data
-          </div>
-        )}
+        {body}
       </div>
     </div>
   )

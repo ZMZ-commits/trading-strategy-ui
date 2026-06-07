@@ -12,6 +12,7 @@ export function useStockData(ticker: string, range: Range): Result {
 
   useEffect(() => {
     if (!ticker) return
+    if (range === 'NOW') { setData([]); return }  // live path handled by useLiveTicks
     const key = `${ticker}:${range}`
     if (cache.current.has(key)) {
       setData(cache.current.get(key)!)

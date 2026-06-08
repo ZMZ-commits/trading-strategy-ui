@@ -32,7 +32,7 @@ export function LWChart({ data, type, showVolume }: Props) {
     if (!container.current) return
     const c = createChart(container.current, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#6b7280', fontSize: 11 },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#6b7280', fontSize: 11, attributionLogo: false },
       grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
       rightPriceScale: { borderColor: '#21262d' },
       timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },

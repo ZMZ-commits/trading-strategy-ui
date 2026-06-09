@@ -45,14 +45,14 @@ function histData(ind: Indicators, key: string, pos: string, neg: string) {
   return out
 }
 
-const OVERLAYS: { key: string; color: string; label: string }[] = [
+const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[] = [
   { key: 'sma20', color: '#f59e0b', label: 'SMA 20' },
   { key: 'sma50', color: '#a855f7', label: 'SMA 50' },
   { key: 'sma200', color: '#ec4899', label: 'SMA 200' },
   { key: 'ema20', color: '#14b8a6', label: 'EMA 20' },
-  { key: 'bb_upper', color: '#64748b', label: '' },
-  { key: 'bb_mid', color: '#94a3b8', label: 'Bollinger' },
-  { key: 'bb_lower', color: '#64748b', label: '' },
+  { key: 'bb_upper', color: 'rgba(96,165,250,0.45)', label: '' },
+  { key: 'bb_mid', color: '#60a5fa', label: 'Bollinger', dashed: true },
+  { key: 'bb_lower', color: 'rgba(96,165,250,0.45)', label: '' },
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
@@ -61,7 +61,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
   const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const seriesRefs = useRef<ISeriesApi<any>[]>([])
+  const priceRefs = useRef<ISeriesApi<any>[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const indRefs = useRef<ISeriesApi<any>[]>([])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const priceRef = useRef<ISeriesApi<any> | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,6 +90,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     el.innerHTML = parts.join('&nbsp;&nbsp;&nbsp;')
   }
 
+  // Create the chart once.
   useEffect(() => {
     if (!container.current) return
     const c = createChart(container.current, {
@@ -103,55 +106,65 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     })
     chart.current = c
     c.subscribeCrosshairMove(p => renderLegend(p))
-    return () => { c.remove(); chart.current = null; seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = '' }
+    return () => {
+      c.remove(); chart.current = null
+      priceRefs.current = []; indRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Effect P: price + volume. Only rebuilds on data/type/volume — NOT on indicator toggles.
   useEffect(() => {
     const c = chart.current
     if (!c) return
-    for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
-    seriesRefs.current = []
-    labeled.current = []
-
+    for (const s of priceRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
+    priceRefs.current = []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const add = (def: any, opts: any, pane = 0) => {
-      const s = c.addSeries(def, opts, pane)
-      seriesRefs.current.push(s)
-      return s
-    }
+    const add = (def: any, opts: any) => { const s = c.addSeries(def, opts); priceRefs.current.push(s); return s }
 
-    // Price (pane 0)
     if (type === 'candlestick') {
       const ps = add(CandlestickSeries, {
-        upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
-        wickUpColor: '#22c55e', wickDownColor: '#ef4444',
+        upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
       })
       ps.setData(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close })))
       priceRef.current = ps
     } else {
-      const ps = add(AreaSeries, {
-        lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2,
-      })
+      const ps = add(AreaSeries, { lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2 })
       ps.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.close })))
       priceRef.current = ps
     }
 
-    // Volume (pane 0 overlay)
     if (showVolume) {
       const v = add(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
       v.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-      v.setData(data.map(b => ({
-        time: toTime(b.timestamp), value: b.volume,
-        color: b.close >= b.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)',
-      })))
+      v.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.volume, color: b.close >= b.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)' })))
     }
+
+    const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
+    if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
+    renderLegend()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, type, showVolume])
+
+  // Effect I: indicators. Re-adds overlays ON TOP of price (shares price deps for z-order),
+  // plus rebuilds when the indicator set changes — without touching the price series.
+  useEffect(() => {
+    const c = chart.current
+    if (!c) return
+    for (const s of indRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
+    indRefs.current = []
+    labeled.current = []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const add = (def: any, opts: any, pane = 0) => { const s = c.addSeries(def, opts, pane); indRefs.current.push(s); return s }
 
     // Overlays (pane 0)
     for (const od of OVERLAYS) {
       const ld = lineData(indicators, od.key)
       if (ld && ld.length) {
-        const s = add(LineSeries, { color: od.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
+        const s = add(LineSeries, {
+          color: od.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+          lineStyle: od.dashed ? LineStyle.Dashed : LineStyle.Solid,
+        })
         s.setData(ld)
         if (od.label) labeled.current.push({ s, label: od.label, color: od.color })
       }
@@ -216,12 +229,6 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       const panes = c.panes()
       for (let i = 1; i < panes.length; i++) panes[i].setHeight(110)
     } catch { /* noop */ }
-
-    const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
-    if (sig !== dataSig.current) {
-      c.timeScale().fitContent()
-      dataSig.current = sig
-    }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators])

@@ -16,6 +16,11 @@ export function useIndicators(ticker: string, range: Range, studies: string[]): 
   const [data, setData] = useState<Indicators>({})
   const key = studies.join(',')
 
+  // Clear stale indicators the moment the ticker or range changes, so a previous
+  // range's series never lingers on the new chart — leftover points throw off the
+  // time-scale bar spacing and cram the candles to one side.
+  useEffect(() => { setData({}) }, [ticker, range])
+
   useEffect(() => {
     if (!ticker || range === 'NOW' || studies.length === 0) {
       setData({})

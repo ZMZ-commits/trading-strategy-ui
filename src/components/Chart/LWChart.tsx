@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   createChart, ColorType, CrosshairMode, LineStyle,
   CandlestickSeries, AreaSeries, LineSeries, HistogramSeries,
@@ -51,23 +51,42 @@ const OVERLAYS: { key: string; color: string; label: string }[] = [
   { key: 'sma200', color: '#ec4899', label: 'SMA 200' },
   { key: 'ema20', color: '#14b8a6', label: 'EMA 20' },
   { key: 'bb_upper', color: '#64748b', label: '' },
-  { key: 'bb_mid', color: '#475569', label: 'Bollinger' },
+  { key: 'bb_mid', color: '#94a3b8', label: 'Bollinger' },
   { key: 'bb_lower', color: '#64748b', label: '' },
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
 export function LWChart({ data, type, showVolume, indicators, oscillators }: Props) {
   const container = useRef<HTMLDivElement>(null)
+  const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
-  const dataSig = useRef<string>('')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const priceRef = useRef<ISeriesApi<any> | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const labeled = useRef<{ s: ISeriesApi<any>; label: string; color: string }[]>([])
+  const dataSig = useRef('')
 
-  // Legend for the price-pane overlays.
-  const legend = useMemo(
-    () => OVERLAYS.filter(o => o.label && indicators[o.key] != null).map(o => ({ label: o.label, color: o.color })),
-    [indicators],
-  )
+  const fmt = (n: number | undefined) => (n == null ? '' : n.toFixed(2))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function renderLegend(param?: any) {
+    const el = legendRef.current
+    if (!el) return
+    const parts: string[] = []
+    const pd = priceRef.current ? param?.seriesData?.get(priceRef.current) : undefined
+    if (pd) {
+      if (pd.close != null) parts.push(`<b style="color:#cbd5e1">O</b>${fmt(pd.open)} <b style="color:#cbd5e1">H</b>${fmt(pd.high)} <b style="color:#cbd5e1">L</b>${fmt(pd.low)} <b style="color:#cbd5e1">C</b>${fmt(pd.close)}`)
+      else if (pd.value != null) parts.push(`<span style="color:#cbd5e1">${fmt(pd.value)}</span>`)
+    }
+    for (const it of labeled.current) {
+      const d = param?.seriesData?.get(it.s)
+      const val = d && d.value != null ? ' ' + fmt(d.value) : ''
+      parts.push(`<span style="color:${it.color}">●</span><span style="color:#9ca3af"> ${it.label}${val}</span>`)
+    }
+    el.innerHTML = parts.join('&nbsp;&nbsp;&nbsp;')
+  }
 
   useEffect(() => {
     if (!container.current) return
@@ -83,7 +102,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       crosshair: { mode: CrosshairMode.Normal },
     })
     chart.current = c
-    return () => { c.remove(); chart.current = null; seriesRefs.current = []; dataSig.current = '' }
+    c.subscribeCrosshairMove(p => renderLegend(p))
+    return () => { c.remove(); chart.current = null; seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = '' }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -91,6 +112,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     if (!c) return
     for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
     seriesRefs.current = []
+    labeled.current = []
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const add = (def: any, opts: any, pane = 0) => {
@@ -101,14 +123,18 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
 
     // Price (pane 0)
     if (type === 'candlestick') {
-      add(CandlestickSeries, {
+      const ps = add(CandlestickSeries, {
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false,
         wickUpColor: '#22c55e', wickDownColor: '#ef4444',
-      }).setData(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close })))
+      })
+      ps.setData(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close })))
+      priceRef.current = ps
     } else {
-      add(AreaSeries, {
+      const ps = add(AreaSeries, {
         lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2,
-      }).setData(data.map(b => ({ time: toTime(b.timestamp), value: b.close })))
+      })
+      ps.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.close })))
+      priceRef.current = ps
     }
 
     // Volume (pane 0 overlay)
@@ -125,7 +151,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     for (const od of OVERLAYS) {
       const ld = lineData(indicators, od.key)
       if (ld && ld.length) {
-        add(LineSeries, { color: od.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false }).setData(ld)
+        const s = add(LineSeries, { color: od.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
+        s.setData(ld)
+        if (od.label) labeled.current.push({ s, label: od.label, color: od.color })
       }
     }
 
@@ -155,7 +183,6 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
         const mom = histData(indicators, 'squeeze_mom', 'rgba(34,197,94,0.6)', 'rgba(239,68,68,0.6)')
         if (mom) {
           add(HistogramSeries, { priceLineVisible: false, title: 'Squeeze' }, pane).setData(mom)
-          // on/off dots on the zero line (red = squeeze on, green = off/fired)
           const on = indicators['squeeze_on']
           if (on) {
             const onPts: { time: UTCTimestamp; value: number }[] = []
@@ -185,33 +212,28 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       }
     }
 
-    // Keep oscillator panes compact.
     try {
       const panes = c.panes()
       for (let i = 1; i < panes.length; i++) panes[i].setHeight(110)
     } catch { /* noop */ }
 
-    // Only refit when the underlying data window changed (preserve zoom on toggles).
     const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
     if (sig !== dataSig.current) {
       c.timeScale().fitContent()
       dataSig.current = sig
     }
+    renderLegend()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators])
 
   return (
     <div className="relative w-full h-full">
       <div ref={container} className="w-full h-full" />
-      {legend.length > 0 && (
-        <div className="absolute top-1 left-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] pointer-events-none">
-          {legend.map(it => (
-            <span key={it.label} className="flex items-center gap-1 text-gray-400">
-              <span className="inline-block h-[2px] w-3" style={{ backgroundColor: it.color }} />
-              {it.label}
-            </span>
-          ))}
-        </div>
-      )}
+      <div
+        ref={legendRef}
+        className="absolute top-1 left-2 text-[11px] leading-snug pointer-events-none rounded px-1.5 py-0.5"
+        style={{ background: 'rgba(13,17,23,0.6)' }}
+      />
     </div>
   )
 }

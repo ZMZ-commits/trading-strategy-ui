@@ -61,9 +61,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
   const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const priceRefs = useRef<ISeriesApi<any>[]>([])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const indRefs = useRef<ISeriesApi<any>[]>([])
+  const seriesRefs = useRef<ISeriesApi<any>[]>([])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const priceRef = useRef<ISeriesApi<any> | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -108,20 +106,24 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     c.subscribeCrosshairMove(p => renderLegend(p))
     return () => {
       c.remove(); chart.current = null
-      priceRefs.current = []; indRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
+      seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Effect P: price + volume. Only rebuilds on data/type/volume — NOT on indicator toggles.
+  // Single render pass — price + volume + overlays + oscillators built together so
+  // the time scale and panes stay consistent across range switches.
   useEffect(() => {
     const c = chart.current
     if (!c) return
-    for (const s of priceRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
-    priceRefs.current = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const add = (def: any, opts: any) => { const s = c.addSeries(def, opts); priceRefs.current.push(s); return s }
+    for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
+    seriesRefs.current = []
+    labeled.current = []
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const add = (def: any, opts: any, pane = 0) => { const s = c.addSeries(def, opts, pane); seriesRefs.current.push(s); return s }
+
+    // Price (pane 0)
     if (type === 'candlestick') {
       const ps = add(CandlestickSeries, {
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
@@ -134,28 +136,12 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       priceRef.current = ps
     }
 
+    // Volume (pane 0 overlay)
     if (showVolume) {
       const v = add(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
       v.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
       v.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.volume, color: b.close >= b.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)' })))
     }
-
-    const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
-    if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
-    renderLegend()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume])
-
-  // Effect I: indicators. Re-adds overlays ON TOP of price (shares price deps for z-order),
-  // plus rebuilds when the indicator set changes — without touching the price series.
-  useEffect(() => {
-    const c = chart.current
-    if (!c) return
-    for (const s of indRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
-    indRefs.current = []
-    labeled.current = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const add = (def: any, opts: any, pane = 0) => { const s = c.addSeries(def, opts, pane); indRefs.current.push(s); return s }
 
     // Overlays (pane 0)
     for (const od of OVERLAYS) {
@@ -225,10 +211,18 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       }
     }
 
+    // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
-      for (let i = 1; i < panes.length; i++) panes[i].setHeight(110)
+      if (panes.length > 1) {
+        panes[0].setStretchFactor((panes.length - 1) + 2)
+        for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1)
+      }
     } catch { /* noop */ }
+
+    // Refit only when the data window changed (preserve zoom on indicator toggles).
+    const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
+    if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators])

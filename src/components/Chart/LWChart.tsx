@@ -116,11 +116,6 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
   useEffect(() => {
     const c = chart.current
     if (!c) return
-
-    // Snapshot the visible range before tearing down series — used to restore
-    // zoom when only indicators changed (not the data window).
-    const prevRange = c.timeScale().getVisibleRange()
-
     for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
     seriesRefs.current = []
     labeled.current = []
@@ -225,21 +220,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       }
     } catch { /* noop */ }
 
-    // Fit when data window changes OR when indicators first populate after a range
-    // switch — both cases rebuild all series and need the time scale re-anchored.
-    // For pure indicator toggles (same data, indicators already loaded) restore
-    // the previous visible range so the user's zoom is preserved.
+    // Refit only when the data window changed (preserve zoom on indicator toggles).
     const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
-    const hasIndicators = Object.keys(indicators).length > 0
-    const fitSig = `${sig}:${hasIndicators ? '1' : '0'}`
-    if (fitSig !== dataSig.current) {
-      dataSig.current = fitSig
-      // rAF ensures LW has committed all canvas updates before we calculate the fit.
-      requestAnimationFrame(() => { if (chart.current) chart.current.timeScale().fitContent() })
-    } else if (prevRange) {
-      // Indicator toggle: restore the saved range so zoom is preserved.
-      requestAnimationFrame(() => { if (chart.current) chart.current.timeScale().setVisibleRange(prevRange) })
-    }
+    if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators])

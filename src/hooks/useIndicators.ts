@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { API_BASE } from '../api/config'
-import type { Range } from '../types'
+import type { Range, Interval } from '../types'
 
 export interface IndicatorSeries {
   time: string[]
@@ -12,14 +12,11 @@ export type Indicators = Record<string, IndicatorSeries>
  * Fetches computed indicator series from the backend for the selected studies.
  * Skips fetching for the live NOW range or when nothing is selected.
  */
-export function useIndicators(ticker: string, range: Range, studies: string[]): Indicators {
+export function useIndicators(ticker: string, range: Range, studies: string[], interval?: Interval): Indicators {
   const [data, setData] = useState<Indicators>({})
   const key = studies.join(',')
 
-  // Clear stale indicators the moment the ticker or range changes, so a previous
-  // range's series never lingers on the new chart — leftover points throw off the
-  // time-scale bar spacing and cram the candles to one side.
-  useEffect(() => { setData({}) }, [ticker, range])
+  useEffect(() => { setData({}) }, [ticker, range, interval])
 
   useEffect(() => {
     if (!ticker || range === 'NOW' || studies.length === 0) {
@@ -27,12 +24,14 @@ export function useIndicators(ticker: string, range: Range, studies: string[]): 
       return
     }
     let cancelled = false
-    fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/indicators?range=${range}&studies=${key}`)
+    const params = new URLSearchParams({ range, studies: key })
+    if (interval) params.set('interval', interval)
+    fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/indicators?${params}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(j => { if (!cancelled) setData(j.indicators || {}) })
       .catch(() => { if (!cancelled) setData({}) })
     return () => { cancelled = true }
-  }, [ticker, range, key])
+  }, [ticker, range, key, interval])
 
   return data
 }

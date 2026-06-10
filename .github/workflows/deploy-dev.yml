@@ -2,7 +2,7 @@ name: Deploy → Dev (Cloudflare Pages)
 
 on:
   push:
-    branches: [deployment]
+    branches: [dev]
     paths:
       - 'src/**'
       - 'public/**'
@@ -32,4 +32,4 @@ jobs:
           projectName: trading-strategy-ui-dev
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          branch: deployment
+          branch: dev

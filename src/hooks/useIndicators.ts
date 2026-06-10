@@ -16,9 +16,10 @@ export function useIndicators(ticker: string, range: Range, studies: string[]): 
   const [data, setData] = useState<Indicators>({})
   const key = studies.join(',')
 
-  // Wipe immediately when the ticker changes — previous asset's indicators are
-  // never valid for a new symbol.
-  useEffect(() => { setData({}) }, [ticker])
+  // Clear stale indicators the moment the ticker or range changes, so a previous
+  // range's series never lingers on the new chart — leftover points throw off the
+  // time-scale bar spacing and cram the candles to one side.
+  useEffect(() => { setData({}) }, [ticker, range])
 
   useEffect(() => {
     if (!ticker || range === 'NOW' || studies.length === 0) {
@@ -26,10 +27,6 @@ export function useIndicators(ticker: string, range: Range, studies: string[]): 
       return
     }
     let cancelled = false
-    // Clear immediately on ticker change (different asset = stale data).
-    // On range change within the same ticker we let the previous indicators
-    // stay visible until the new ones arrive — avoids a blank intermediate
-    // render that causes a double series-rebuild and chart flicker.
     fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/indicators?range=${range}&studies=${key}`)
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(j => { if (!cancelled) setData(j.indicators || {}) })

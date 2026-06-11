@@ -4,7 +4,22 @@ import { LWChart } from './LWChart'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
-import type { Range, OHLCBar } from '../../types'
+import type { Range, Interval, OHLCBar } from '../../types'
+
+const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
+
+// Which intervals are supported for each range (first entry = default).
+const RANGE_INTERVALS: Record<string, Interval[]> = {
+  '30M': ['1m'],
+  '1H':  ['1m'],
+  '5H':  ['1m'],
+  '1D':  ['1m', '1h'],
+  '1W':  ['1h', '1d'],
+  '1M':  ['1d', '1h'],
+  '1Y':  ['1d', '1w'],
+  '5Y':  ['1w', '1d', '1mo'],
+  'MAX': ['1mo', '1w'],
+}
 
 interface Props {
   ticker: string
@@ -30,7 +45,21 @@ const ALL_ITEMS = [...OVERLAY_ITEMS, ...OSC_ITEMS]
 
 export function StockChart({ ticker, range, onRangeChange }: Props) {
   const isLive = range === 'NOW'
-  const { data, loading, error } = useStockData(ticker, range)
+  const supportedIntervals = RANGE_INTERVALS[range] ?? []
+  const [intervalOverride, setIntervalOverride] = useState<Interval | undefined>(undefined)
+  const [intervalOpen, setIntervalOpen] = useState(false)
+
+  // Reset interval when range changes if the current override isn't supported.
+  const effectiveInterval = supportedIntervals.includes(intervalOverride as Interval)
+    ? intervalOverride
+    : undefined
+
+  const handleRangeChange = (r: Range) => {
+    setIntervalOverride(undefined)
+    onRangeChange(r)
+  }
+
+  const { data, loading, error } = useStockData(ticker, range, effectiveInterval)
   const { ticks, connected } = useLiveTicks(ticker, isLive)
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
@@ -52,7 +81,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
     [selectedIds],
   )
 
-  const indicators = useIndicators(ticker, range, studies)
+  const indicators = useIndicators(ticker, range, studies, effectiveInterval)
 
   // Live ticks → single-price bars; rendered as a line.
   const liveData: OHLCBar[] = ticks.map(t => ({
@@ -168,9 +197,49 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                   </>
                 )}
               </div>
+
+              {/* Interval picker — only shown for non-live ranges that have options */}
+              {supportedIntervals.length > 1 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setIntervalOpen(o => !o)}
+                    className="px-2 py-1 text-xs rounded border border-border text-gray-400 hover:bg-gray-700 transition-colors"
+                  >
+                    {effectiveInterval ?? supportedIntervals[0]} ▾
+                  </button>
+                  {intervalOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIntervalOpen(false)} />
+                      <div className="absolute right-0 mt-1 z-20 w-20 bg-surface border border-border rounded-md shadow-xl p-1 text-xs">
+                        {ALL_INTERVALS.map(iv => {
+                          const supported = supportedIntervals.includes(iv)
+                          const active = (effectiveInterval ?? supportedIntervals[0]) === iv
+                          return (
+                            <button
+                              key={iv}
+                              disabled={!supported}
+                              onClick={() => { setIntervalOverride(iv); setIntervalOpen(false) }}
+                              className={`flex items-center gap-1.5 w-full px-2 py-1 rounded text-left transition-colors ${
+                                !supported
+                                  ? 'text-gray-600 cursor-not-allowed'
+                                  : active
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-gray-300 hover:bg-gray-700'
+                              }`}
+                            >
+                              {iv}
+                              {!supported && <span className="text-[9px] text-gray-600 ml-auto">n/a</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </>
           )}
-          <RangeTabs active={range} onChange={onRangeChange} />
+          <RangeTabs active={range} onChange={handleRangeChange} />
         </div>
       </div>
 

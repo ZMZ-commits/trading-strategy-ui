@@ -12,24 +12,47 @@ on:
       - 'tailwind.config.ts'
   workflow_dispatch:
 
+env:
+  PROJECT_NAME: trading-strategy-ui-dev
+
 jobs:
   deploy:
     name: Deploy to dev
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - run: npm install
+
       - run: npm run build
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_DEV }}
+
+      - name: Ensure Cloudflare Pages project exists
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${{ env.PROJECT_NAME }}" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}")
+          if [ "$STATUS" = "404" ]; then
+            echo "Project not found — creating ${{ env.PROJECT_NAME }}"
+            curl -s -X POST \
+              "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects" \
+              -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              --data '{"name":"${{ env.PROJECT_NAME }}","production_branch":"dev"}' | jq .
+          else
+            echo "Project ${{ env.PROJECT_NAME }} already exists (HTTP $STATUS)"
+          fi
+
       - uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: trading-strategy-ui-dev
+          projectName: ${{ env.PROJECT_NAME }}
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           branch: dev

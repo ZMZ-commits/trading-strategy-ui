@@ -1,4 +1,5 @@
 export type Range = 'NOW' | '30M' | '1H' | '5H' | '1D' | '1W' | '1M' | '1Y' | '5Y' | 'MAX'
+export type Interval = '1s' | '1m' | '1h' | '1d' | '1w' | '1mo'
 export type StrategyStatus = 'idle' | 'running' | 'completed' | 'error'
 
 export interface Strategy {

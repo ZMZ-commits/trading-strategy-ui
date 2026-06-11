@@ -3,13 +3,6 @@ name: Deploy → Prod (Cloudflare Pages)
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'public/**'
-      - 'index.html'
-      - 'package*.json'
-      - 'vite.config.ts'
-      - 'tailwind.config.ts'
   workflow_dispatch:
 
 jobs:

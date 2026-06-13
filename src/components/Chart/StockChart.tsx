@@ -198,8 +198,9 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                 )}
               </div>
 
-              {/* Interval picker — only shown for non-live ranges that have options */}
-              {supportedIntervals.length > 1 && (
+              {/* Interval picker — shown on every non-live range; intervals the
+                  range doesn't support are rendered greyed-out ("n/a"). */}
+              {supportedIntervals.length > 0 && (
                 <div className="relative">
                   <button
                     onClick={() => setIntervalOpen(o => !o)}

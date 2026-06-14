@@ -64,7 +64,9 @@ export default function App() {
         />
         <BottomPanel isMobile={isMobile} ticker={activeTicker} selectedStrategy={selectedStrategy} />
       </main>
-      <FloatingWidget isMobile={isMobile} />
+      {/* The watchlist / my-stocks already live in the top panel on mobile, so the
+          floating market widget is redundant there and would overlap the chart. */}
+      {!isMobile && <FloatingWidget isMobile={isMobile} />}
     </div>
   )
 }

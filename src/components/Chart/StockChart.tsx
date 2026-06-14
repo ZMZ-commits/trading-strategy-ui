@@ -22,6 +22,7 @@ const RANGE_INTERVALS: Record<string, Interval[]> = {
 }
 
 interface Props {
+  isMobile?: boolean
   ticker: string
   range: Range
   onRangeChange: (r: Range) => void
@@ -43,7 +44,7 @@ const OSC_ITEMS = [
 ]
 const ALL_ITEMS = [...OVERLAY_ITEMS, ...OSC_ITEMS]
 
-export function StockChart({ ticker, range, onRangeChange }: Props) {
+export function StockChart({ isMobile = false, ticker, range, onRangeChange }: Props) {
   const isLive = range === 'NOW'
   const supportedIntervals = RANGE_INTERVALS[range] ?? []
   const [intervalOverride, setIntervalOverride] = useState<Interval | undefined>(undefined)
@@ -118,8 +119,8 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
     <button
       onClick={onClick}
       title={title}
-      className={`px-2 py-1 text-xs font-medium transition-colors ${
-        active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'
+      className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+        active ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
       }`}
     >
       {label}
@@ -143,8 +144,8 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 p-4 bg-panel border-b border-border">
-      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+    <div className={`flex flex-col p-2 lg:p-4 bg-panel border-b border-border ${isMobile ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
+      <div className="flex flex-col gap-2 mb-2 lg:flex-row lg:items-center lg:justify-between lg:gap-2 lg:mb-3">
         {/* Ticker + price */}
         <div className="flex items-center gap-3">
           <span className="text-xl font-bold text-gray-100">{ticker}</span>
@@ -157,10 +158,10 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
           )}
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2">
+        {/* Controls + range tabs */}
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
           {!isLive && (
-            <>
+            <div className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap lg:gap-2">
               <div className="flex rounded overflow-hidden border border-border">
                 {toggleBtn(chartType === 'candlestick', () => setChartType('candlestick'), 'Candles', 'Candlestick')}
                 {toggleBtn(chartType === 'line', () => setChartType('line'), 'Line', 'Line / area')}
@@ -168,8 +169,8 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
               <button
                 onClick={() => setShowVolume(v => !v)}
                 title="Toggle volume"
-                className={`px-2 py-1 text-xs rounded border border-border transition-colors ${
-                  showVolume ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-700'
+                className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                  showVolume ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-700 active:bg-gray-700'
                 }`}
               >
                 Vol
@@ -179,8 +180,8 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
               <div className="relative">
                 <button
                   onClick={() => setPickerOpen(o => !o)}
-                  className={`px-2 py-1 text-xs rounded border border-border transition-colors ${
-                    selectedIds.length ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700'
+                  className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                    selectedIds.length ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
                   }`}
                 >
                   Indicators{selectedIds.length ? ` (${selectedIds.length})` : ''} ▾
@@ -188,7 +189,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                 {pickerOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setPickerOpen(false)} />
-                    <div className="absolute right-0 mt-1 z-20 w-48 bg-surface border border-border rounded-md shadow-xl p-1 text-xs">
+                    <div className="absolute left-0 mt-1 z-20 w-48 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
                       <div className="px-2 py-1 text-gray-500 uppercase text-[10px] tracking-wide">Overlays</div>
                       {OVERLAY_ITEMS.map(pickRow)}
                       <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Oscillators (panes)</div>
@@ -204,14 +205,14 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                 <div className="relative">
                   <button
                     onClick={() => setIntervalOpen(o => !o)}
-                    className="px-2 py-1 text-xs rounded border border-border text-gray-400 hover:bg-gray-700 transition-colors"
+                    className="px-2.5 py-1.5 text-xs rounded border border-border text-gray-400 hover:bg-gray-700 active:bg-gray-700 transition-colors"
                   >
                     {effectiveInterval ?? supportedIntervals[0]} ▾
                   </button>
                   {intervalOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIntervalOpen(false)} />
-                      <div className="absolute right-0 mt-1 z-20 w-20 bg-surface border border-border rounded-md shadow-xl p-1 text-xs">
+                      <div className="absolute left-0 mt-1 z-20 w-20 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
                         {ALL_INTERVALS.map(iv => {
                           const supported = supportedIntervals.includes(iv)
                           const active = (effectiveInterval ?? supportedIntervals[0]) === iv
@@ -220,7 +221,7 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                               key={iv}
                               disabled={!supported}
                               onClick={() => { setIntervalOverride(iv); setIntervalOpen(false) }}
-                              className={`flex items-center gap-1.5 w-full px-2 py-1 rounded text-left transition-colors ${
+                              className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded text-left transition-colors ${
                                 !supported
                                   ? 'text-gray-600 cursor-not-allowed'
                                   : active
@@ -238,13 +239,16 @@ export function StockChart({ ticker, range, onRangeChange }: Props) {
                   )}
                 </div>
               )}
-            </>
+            </div>
           )}
-          <RangeTabs active={range} onChange={handleRangeChange} />
+          {/* Range tabs scroll horizontally on touch; inline on desktop */}
+          <div className="overflow-x-auto scrollbar-thin -mx-0.5 px-0.5 lg:overflow-visible lg:mx-0 lg:px-0">
+            <RangeTabs active={range} onChange={handleRangeChange} />
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">{body}</div>
+      <div className={isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}>{body}</div>
     </div>
   )
 }

@@ -4,11 +4,25 @@ import { StockDetails } from './StockDetails'
 import { StrategyMetrics } from './StrategyMetrics'
 import type { Strategy } from '../../types'
 
-interface Props { ticker: string; selectedStrategy: Strategy | null }
+interface Props { isMobile?: boolean; ticker: string; selectedStrategy: Strategy | null }
 
-export function BottomPanel({ ticker, selectedStrategy }: Props) {
+export function BottomPanel({ isMobile = false, ticker, selectedStrategy }: Props) {
   const { height, onDragHandleMouseDown } = useResizable(240)
   const { width: leftWidth, onDragHandleMouseDown: onHSplitDown } = useHResizable(280)
+
+  // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──
+  if (isMobile) {
+    return (
+      <div className="flex flex-col flex-shrink-0 bg-panel border-t border-border">
+        <div className="border-b border-border" style={{ height: 250 }}>
+          <StockDetails ticker={ticker} />
+        </div>
+        <div style={{ height: 280 }}>
+          <StrategyMetrics strategy={selectedStrategy} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ height }} className="flex flex-col flex-shrink-0 bg-panel overflow-hidden">

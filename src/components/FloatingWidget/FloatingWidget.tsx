@@ -5,10 +5,11 @@ import { WidgetPanel } from './WidgetPanel'
 
 const WIDGET_W = 224
 
-export function FloatingWidget() {
+export function FloatingWidget({ isMobile = false }: { isMobile?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const { pos, onMouseDown } = useDraggable(
-    { x: window.innerWidth - WIDGET_W - 8, y: 80 },
+    // Sit near the bottom on phones/tablets so it clears the sticky header.
+    { x: window.innerWidth - WIDGET_W - 8, y: isMobile ? window.innerHeight - 120 : 80 },
     { snapToEdge: true, elementWidth: WIDGET_W },
   )
 

@@ -160,12 +160,13 @@ function SectionLabel({ text }: { text: string }) {
 
 // ── main ──────────────────────────────────────────────────────────────────────
 interface Props {
+  isMobile?: boolean
   activeTicker: string
   recentTickers: string[]
   onTickerChange: (t: string) => void
 }
 
-export function TopPanel({ activeTicker, recentTickers, onTickerChange }: Props) {
+export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTickerChange }: Props) {
   // Vertical resize (bottom drag handle)
   const { height, onDragHandleMouseDown: onVResize } = useResizable(166, 52, 'down')
 
@@ -174,6 +175,43 @@ export function TopPanel({ activeTicker, recentTickers, onTickerChange }: Props)
   const { width: leftW, onDragHandleMouseDown: onLeftDrag } = useHResizable(180, 110)
   // mid = Watchlist column width
   const { width: midW, onDragHandleMouseDown: onMidDrag } = useHResizable(290, 150)
+
+  // ── Mobile/tablet: stack the sections; no mouse-drag dividers ──
+  if (isMobile) {
+    return (
+      <div className="flex flex-col flex-shrink-0 bg-panel border-b border-border">
+        {/* Search + recent (recent as a horizontal chip strip) */}
+        <div className="p-2 overflow-visible border-b border-border/50">
+          <TickerInput current={activeTicker} onSubmit={onTickerChange} />
+          {recentTickers.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-thin mt-2 -mx-0.5 px-0.5">
+              {recentTickers.map(t => (
+                <button
+                  key={t}
+                  onClick={() => onTickerChange(t)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded text-[11px] font-mono font-bold border transition-colors ${
+                    t === activeTicker
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-border text-blue-400 active:bg-gray-700'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Watchlist + My Stocks — each a capped, scrollable section */}
+        <div className="max-h-44 overflow-y-auto scrollbar-thin border-b border-border/50">
+          <PortfolioSection title="Watchlist" portfolios={WATCHLIST_PORTFOLIOS} onTickerChange={onTickerChange} />
+        </div>
+        <div className="max-h-44 overflow-y-auto scrollbar-thin">
+          <PortfolioSection title="My Stocks" portfolios={MY_PORTFOLIOS} onTickerChange={onTickerChange} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     // Root has no overflow-hidden so the autocomplete portal isn't affected

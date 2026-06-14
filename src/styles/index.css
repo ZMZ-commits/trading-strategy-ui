@@ -3,8 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  html, body, #root {
+    height: 100%;
+  }
   body {
     @apply bg-surface text-gray-100 antialiased;
+    /* Avoid accidental horizontal scroll on small screens and remove the
+       grey tap-flash on touch devices. */
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 

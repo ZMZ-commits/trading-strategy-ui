@@ -1,6 +1,6 @@
 import type { Range } from '../../types'
 
-const RANGES: Range[] = ['NOW', '30M', '1H', '5H', '1D', '1W', '1M', '1Y', '5Y', 'MAX']
+const RANGES: Range[] = ['NOW', '30M', '1H', '5H', '1D', '5D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'MAX']
 
 interface Props { active: Range; onChange: (r: Range) => void }
 

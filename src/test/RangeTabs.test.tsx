@@ -3,9 +3,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { RangeTabs } from '../components/Chart/RangeTabs'
 
 describe('RangeTabs', () => {
-  it('renders all 6 range tabs', () => {
+  it('renders the range tabs', () => {
     render(<RangeTabs active="1M" onChange={vi.fn()} />)
-    for (const r of ['1D', '1W', '1M', '1Y', '5Y', 'MAX']) {
+    for (const r of ['1D', '5D', '1M', '3M', '6M', 'YTD', '1Y', '5Y', 'MAX']) {
       expect(screen.getByText(r)).toBeInTheDocument()
     }
   })

@@ -13,9 +13,11 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
 }
 
-// Built-in technical studies catalog (searchable). Wiring a study click to the
-// chart's indicator state is a follow-up; for now this is a searchable catalog.
-const STUDIES = [
+// Built-in indicators catalog (searchable). Overlays draw on the price chart;
+// oscillators draw in their own pane. Custom (user-authored) indicators get
+// added via the section's "+" (coming soon). Wiring a click to toggle the
+// indicator on the chart is a follow-up.
+const INDICATORS = [
   'SMA 20', 'SMA 50', 'SMA 200', 'EMA 20', 'Bollinger Bands',
   'VWAP', 'RSI', 'MACD', 'TTM Squeeze', 'Stochastic',
 ]
@@ -61,7 +63,6 @@ function Section({ title, defaultOpen = false, count, onAdd, addTitle, children 
 
 export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy }: Props) {
   const [strategies, setStrategies] = useState<Strategy[]>([])
-  const [studyQuery, setStudyQuery] = useState('')
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
   const [viewQuery, setViewQuery] = useState('')
@@ -76,7 +77,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     window.setTimeout(() => setToast(null), 2200)
   }, [])
 
-  const filteredStudies = STUDIES.filter(s => s.toLowerCase().includes(studyQuery.toLowerCase()))
+  const filteredIndicators = INDICATORS.filter(s => s.toLowerCase().includes(indicatorQuery.toLowerCase()))
   const filteredStrategies = strategies.filter(s => s.name.toLowerCase().includes(strategyQuery.toLowerCase()))
 
   // Shared inner content: header + collapsible sections + transient toast.
@@ -97,16 +98,22 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* ── Studies (built-in, searchable catalog) ── */}
-        <Section title="Studies" defaultOpen count={STUDIES.length}>
+        {/* ── Indicators (built-in catalog + custom via "+") ── */}
+        <Section
+          title="Indicators"
+          defaultOpen
+          count={INDICATORS.length}
+          onAdd={() => showToast('Custom indicators — coming soon')}
+          addTitle="Add custom indicator (coming soon)"
+        >
           <div className="px-2 pb-2">
-            <StrategySearch value={studyQuery} onChange={setStudyQuery} placeholder="Search studies..." />
+            <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
           </div>
-          {filteredStudies.length === 0 ? (
-            <p className="px-3 py-1 text-xs text-gray-600">No studies match</p>
+          {filteredIndicators.length === 0 ? (
+            <p className="px-3 py-1 text-xs text-gray-600">No indicators match</p>
           ) : (
             <ul>
-              {filteredStudies.map(s => (
+              {filteredIndicators.map(s => (
                 <li key={s}>
                   <button
                     type="button"
@@ -119,19 +126,6 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
               ))}
             </ul>
           )}
-        </Section>
-
-        {/* ── Custom Indicators (placeholder) ── */}
-        <Section
-          title="Custom Indicators"
-          count={0}
-          onAdd={() => showToast('Custom indicators — coming soon')}
-          addTitle="Add custom indicator (coming soon)"
-        >
-          <div className="px-2 pb-2">
-            <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search custom indicators..." />
-          </div>
-          <p className="px-3 py-2 text-xs text-gray-600">No custom indicators yet</p>
         </Section>
 
         {/* ── Strategies (create / run / select) ── */}

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { TickerInput } from '../Chart/TickerInput'
@@ -167,8 +168,10 @@ interface Props {
 }
 
 export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTickerChange }: Props) {
-  // Vertical resize (bottom drag handle)
-  const { height, onDragHandleMouseDown: onVResize } = useResizable(166, 52, 'down')
+  const [collapsed, setCollapsed] = useState(false)
+
+  // Vertical resize (bottom drag handle); dragging past the minimum collapses it.
+  const { height, onDragHandleMouseDown: onVResize } = useResizable(166, 52, 'down', () => setCollapsed(true))
 
   // Horizontal splits
   // left = Search+Recent column width
@@ -213,9 +216,38 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
     )
   }
 
+  // ── Collapsed: thin bar with an expand control ──
+  if (collapsed) {
+    return (
+      <div className="flex items-center justify-between h-7 px-3 bg-panel border-b border-border flex-shrink-0">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Search &amp; Watchlist</span>
+        <button
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand top panel"
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
   return (
     // Root has no overflow-hidden so the autocomplete portal isn't affected
-    <div style={{ height }} className="flex flex-col flex-shrink-0 bg-panel border-b border-border">
+    <div style={{ height }} className="relative flex flex-col flex-shrink-0 bg-panel border-b border-border">
+
+      <button
+        onClick={() => setCollapsed(true)}
+        aria-label="Collapse top panel"
+        title="Collapse"
+        className="absolute right-1.5 top-1 z-10 p-1 rounded hover:bg-gray-700/80 text-gray-500 hover:text-gray-200"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
 

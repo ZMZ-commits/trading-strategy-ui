@@ -3,7 +3,6 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { TopPanel } from './components/TopPanel/TopPanel'
 import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
-import { FloatingWidget } from './components/FloatingWidget/FloatingWidget'
 import { useIsMobile } from './hooks/useMediaQuery'
 import type { Strategy, Range } from './types'
 
@@ -64,9 +63,6 @@ export default function App() {
         />
         <BottomPanel isMobile={isMobile} ticker={activeTicker} selectedStrategy={selectedStrategy} />
       </main>
-      {/* The watchlist / my-stocks already live in the top panel on mobile, so the
-          floating market widget is redundant there and would overlap the chart. */}
-      {!isMobile && <FloatingWidget isMobile={isMobile} />}
     </div>
   )
 }

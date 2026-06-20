@@ -2,7 +2,13 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 
 // direction='up'  — drag handle at top, drag upward to grow (BottomPanel)
 // direction='down' — drag handle at bottom, drag downward to grow (TopPanel)
-export function useResizable(initialHeight: number, min = 120, direction: 'up' | 'down' = 'up') {
+// onCollapse — if provided, dragging the handle past the minimum collapses the panel.
+export function useResizable(
+  initialHeight: number,
+  min = 120,
+  direction: 'up' | 'down' = 'up',
+  onCollapse?: () => void,
+) {
   const [height, setHeight] = useState(initialHeight)
   const dragging = useRef(false)
   const startY = useRef(0)
@@ -25,7 +31,14 @@ export function useResizable(initialHeight: number, min = 120, direction: 'up' |
       const delta = direction === 'up'
         ? startY.current - e.clientY
         : e.clientY - startY.current
-      const next = Math.min(Math.max(startH.current + delta, min), max)
+      const raw = startH.current + delta
+      // Dragging well past the minimum collapses the panel instead of clamping.
+      if (onCollapse && raw < min - 24) {
+        dragging.current = false
+        onCollapse()
+        return
+      }
+      const next = Math.min(Math.max(raw, min), max)
       setHeight(next)
     }
     const onUp = () => { dragging.current = false }
@@ -35,7 +48,7 @@ export function useResizable(initialHeight: number, min = 120, direction: 'up' |
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [min, direction])
+  }, [min, direction, onCollapse])
 
   return { height, onDragHandleMouseDown }
 }

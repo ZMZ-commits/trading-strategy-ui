@@ -13,13 +13,13 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
 }
 
-// Built-in indicators catalog (searchable). Overlays draw on the price chart;
-// oscillators draw in their own pane. Custom (user-authored) indicators get
-// added via the section's "+" (coming soon). Wiring a click to toggle the
-// indicator on the chart is a follow-up.
-const INDICATORS = [
-  'SMA 20', 'SMA 50', 'SMA 200', 'EMA 20', 'Bollinger Bands',
-  'VWAP', 'RSI', 'MACD', 'TTM Squeeze', 'Stochastic',
+// Built-in indicators, split by how they render: overlays draw on the price
+// chart (same scale as candles); oscillators draw in their own pane. Custom
+// (user-authored) indicators get added via the section's "+" (coming soon).
+// Wiring a click to toggle the indicator on the chart is a follow-up.
+const INDICATOR_GROUPS: { label: string; items: string[] }[] = [
+  { label: 'Overlays', items: ['SMA 20', 'SMA 50', 'SMA 200', 'EMA 20', 'Bollinger Bands', 'VWAP'] },
+  { label: 'Oscillators', items: ['RSI', 'MACD', 'TTM Squeeze', 'Stochastic'] },
 ]
 
 // Collapsible accordion section. Optional `onAdd` renders a "+" in the header.
@@ -77,7 +77,11 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     window.setTimeout(() => setToast(null), 2200)
   }, [])
 
-  const filteredIndicators = INDICATORS.filter(s => s.toLowerCase().includes(indicatorQuery.toLowerCase()))
+  const iq = indicatorQuery.toLowerCase()
+  const indicatorGroups = INDICATOR_GROUPS
+    .map(g => ({ label: g.label, items: g.items.filter(i => i.toLowerCase().includes(iq)) }))
+    .filter(g => g.items.length > 0)
+  const totalIndicators = INDICATOR_GROUPS.reduce((n, g) => n + g.items.length, 0)
   const filteredStrategies = strategies.filter(s => s.name.toLowerCase().includes(strategyQuery.toLowerCase()))
 
   // Shared inner content: header + collapsible sections + transient toast.
@@ -102,29 +106,34 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
         <Section
           title="Indicators"
           defaultOpen
-          count={INDICATORS.length}
+          count={totalIndicators}
           onAdd={() => showToast('Custom indicators — coming soon')}
           addTitle="Add custom indicator (coming soon)"
         >
           <div className="px-2 pb-2">
             <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
           </div>
-          {filteredIndicators.length === 0 ? (
+          {indicatorGroups.length === 0 ? (
             <p className="px-3 py-1 text-xs text-gray-600">No indicators match</p>
           ) : (
-            <ul>
-              {filteredIndicators.map(s => (
-                <li key={s}>
-                  <button
-                    type="button"
-                    title="Add to chart (coming soon)"
-                    className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
-                  >
-                    {s}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            indicatorGroups.map(g => (
+              <div key={g.label}>
+                <p className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-gray-600">{g.label}</p>
+                <ul>
+                  {g.items.map(s => (
+                    <li key={s}>
+                      <button
+                        type="button"
+                        title="Add to chart (coming soon)"
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+                      >
+                        {s}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
           )}
         </Section>
 

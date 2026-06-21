@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
 import { StrategyList } from './StrategyList'
 import { CreateStrategyModal } from './CreateStrategyModal'
+import { CustomIndicatorIDE } from './CustomIndicatorIDE'
 import { getStrategies } from '../../api/strategies'
 import type { Strategy } from '../../types'
 
@@ -67,6 +68,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
   const [strategyQuery, setStrategyQuery] = useState('')
   const [viewQuery, setViewQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [showIDE, setShowIDE] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(() => { getStrategies().then(setStrategies).catch(() => {}) }, [])
@@ -107,8 +109,8 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           title="Indicators"
           defaultOpen
           count={totalIndicators}
-          onAdd={() => showToast('Custom indicators — coming soon')}
-          addTitle="Add custom indicator (coming soon)"
+          onAdd={() => setShowIDE(true)}
+          addTitle="New custom indicator (IDE)"
         >
           <div className="px-2 pb-2">
             <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
@@ -181,6 +183,8 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     <CreateStrategyModal onClose={() => setShowModal(false)} onCreated={() => { load(); setShowModal(false) }} />
   )
 
+  const ide = showIDE && <CustomIndicatorIDE onClose={() => setShowIDE(false)} />
+
   // ── Mobile: slide-in drawer over the content with a tap-to-close backdrop ──
   if (isMobile) {
     return (
@@ -196,6 +200,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           {body}
         </aside>
         {modal}
+        {ide}
       </>
     )
   }

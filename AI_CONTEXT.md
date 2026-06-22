@@ -95,7 +95,8 @@ Actions (`deploy-{dev,staging,prod}.yml`, auto-create project on first deploy).
 > `main`. Recompute: `git log origin/staging --no-merges --oneline` and
 > `git log origin/main..origin/staging --oneline` for unreleased-to-prod.
 
-- **2026-06-13** (`staging`, ⚠️ not in `main`) — responsive/touch layout for phones & tablets; hide floating market widget on mobile.
+- **2026-06-22** (`dev`→prod) — **Navigator sidebar** (Indicators = Overlays/Oscillators + Strategies + Saved Views; per-section search + `+` buttons); **collapsible** top/bottom panels (drag past min or chevron); **floating widget removed**; added 5D/3M/6M/YTD ranges (1W→5D). _Next: render published custom indicators on the chart (#3)._
+- **2026-06-13** — responsive/touch layout for phones & tablets; hide floating market widget on mobile.
 - **2026-06-12** (`main`) — interval picker on every range, greying unsupported.
 - **2026-06-10/11** (`main`) — interval-granularity dropdown; Cloudflare Pages auto-create + wrangler deploy; any-push auto-deploy.
 - **2026-06-08/09** (`main`) — crosshair legend; indicator polish (legend, preserved zoom, guide lines, squeeze dots); indicator picker (overlays + panes); chart bugfixes.

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
 import { StrategyList } from './StrategyList'
 import { CreateStrategyModal } from './CreateStrategyModal'
+import { CustomIndicatorIDE } from './CustomIndicatorIDE'
 import { getStrategies } from '../../api/strategies'
 import type { Strategy } from '../../types'
 
@@ -13,21 +14,83 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
 }
 
+// Built-in indicators, split by how they render: overlays draw on the price
+// chart (same scale as candles); oscillators draw in their own pane. Custom
+// (user-authored) indicators get added via the section's "+" (coming soon).
+// Wiring a click to toggle the indicator on the chart is a follow-up.
+const INDICATOR_GROUPS: { label: string; items: string[] }[] = [
+  { label: 'Overlays', items: ['SMA 20', 'SMA 50', 'SMA 200', 'EMA 20', 'Bollinger Bands', 'VWAP'] },
+  { label: 'Oscillators', items: ['RSI', 'MACD', 'TTM Squeeze', 'Stochastic'] },
+]
+
+// Collapsible accordion section. Optional `onAdd` renders a "+" in the header.
+function Section({ title, defaultOpen = false, count, onAdd, addTitle, children }: {
+  title: string
+  defaultOpen?: boolean
+  count?: number
+  onAdd?: () => void
+  addTitle?: string
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border-b border-border">
+      <div className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-gray-700/40 transition-colors">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 flex-1 min-w-0 text-left">
+          <svg className={`w-3 h-3 text-gray-500 transition-transform ${open ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 truncate">{title}</span>
+          {count != null && <span className="text-[10px] text-gray-600">{count}</span>}
+        </button>
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            title={addTitle ?? `Add ${title}`}
+            aria-label={addTitle ?? `Add ${title}`}
+            className="p-0.5 rounded hover:bg-gray-600 text-gray-400 hover:text-gray-100 flex-shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
+      </div>
+      {open && <div className="pb-2">{children}</div>}
+    </div>
+  )
+}
+
 export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy }: Props) {
   const [strategies, setStrategies] = useState<Strategy[]>([])
-  const [query, setQuery] = useState('')
+  const [indicatorQuery, setIndicatorQuery] = useState('')
+  const [strategyQuery, setStrategyQuery] = useState('')
+  const [viewQuery, setViewQuery] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [showIDE, setShowIDE] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(() => { getStrategies().then(setStrategies).catch(() => {}) }, [])
   useEffect(() => { load() }, [load])
 
-  const filtered = strategies.filter(s => s.name.toLowerCase().includes(query.toLowerCase()))
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    window.setTimeout(() => setToast(null), 2200)
+  }, [])
 
-  // Shared inner content (search + list + create button).
+  const iq = indicatorQuery.toLowerCase()
+  const indicatorGroups = INDICATOR_GROUPS
+    .map(g => ({ label: g.label, items: g.items.filter(i => i.toLowerCase().includes(iq)) }))
+    .filter(g => g.items.length > 0)
+  const totalIndicators = INDICATOR_GROUPS.reduce((n, g) => n + g.items.length, 0)
+  const filteredStrategies = strategies.filter(s => s.name.toLowerCase().includes(strategyQuery.toLowerCase()))
+
+  // Shared inner content: header + collapsible sections + transient toast.
   const body = (
     <>
-      <div className="flex items-center justify-between p-3 border-b border-border">
-        <span className="text-sm font-semibold text-gray-300">Strategies</span>
+      <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
+        <span className="text-sm font-semibold text-gray-300">Navigator</span>
         <button
           onClick={onToggle}
           className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
@@ -39,24 +102,88 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           </svg>
         </button>
       </div>
-      <div className="p-2"><StrategySearch value={query} onChange={setQuery} /></div>
+
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        <StrategyList strategies={filtered} selectedId={selectedStrategy?.id ?? null} onSelect={onSelectStrategy} />
-      </div>
-      <div className="p-2 border-t border-border">
-        <button
-          onClick={() => setShowModal(true)}
-          className="w-full py-2.5 px-3 text-sm rounded bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-medium transition-colors"
+        {/* ── Indicators (built-in catalog + custom via "+") ── */}
+        <Section
+          title="Indicators"
+          defaultOpen
+          count={totalIndicators}
+          onAdd={() => setShowIDE(true)}
+          addTitle="New custom indicator (IDE)"
         >
-          + Create Strategy
-        </button>
+          <div className="px-2 pb-2">
+            <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
+          </div>
+          {indicatorGroups.length === 0 ? (
+            <p className="px-3 py-1 text-xs text-gray-600">No indicators match</p>
+          ) : (
+            indicatorGroups.map(g => (
+              <div key={g.label}>
+                <p className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-gray-600">{g.label}</p>
+                <ul>
+                  {g.items.map(s => (
+                    <li key={s}>
+                      <button
+                        type="button"
+                        title="Add to chart (coming soon)"
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+                      >
+                        {s}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+        </Section>
+
+        {/* ── Strategies (create / run / select) ── */}
+        <Section
+          title="Strategies"
+          defaultOpen
+          count={strategies.length}
+          onAdd={() => setShowModal(true)}
+          addTitle="Create strategy"
+        >
+          <div className="px-2 pb-2">
+            <StrategySearch value={strategyQuery} onChange={setStrategyQuery} placeholder="Search strategies..." />
+          </div>
+          <StrategyList
+            strategies={filteredStrategies}
+            selectedId={selectedStrategy?.id ?? null}
+            onSelect={onSelectStrategy}
+          />
+        </Section>
+
+        {/* ── Saved Dashboard Views (placeholder — not implemented yet) ── */}
+        <Section
+          title="Saved Dashboard Views"
+          count={0}
+          onAdd={() => showToast('Saved dashboard views — coming soon')}
+          addTitle="Save current view (coming soon)"
+        >
+          <div className="px-2 pb-2">
+            <StrategySearch value={viewQuery} onChange={setViewQuery} placeholder="Search views..." />
+          </div>
+          <p className="px-3 py-2 text-xs text-gray-600">Coming soon</p>
+        </Section>
       </div>
+
+      {toast && (
+        <div className="px-3 py-1.5 text-[11px] text-amber-300 bg-amber-900/30 border-t border-border flex-shrink-0">
+          {toast}
+        </div>
+      )}
     </>
   )
 
   const modal = showModal && (
     <CreateStrategyModal onClose={() => setShowModal(false)} onCreated={() => { load(); setShowModal(false) }} />
   )
+
+  const ide = showIDE && <CustomIndicatorIDE onClose={() => setShowIDE(false)} />
 
   // ── Mobile: slide-in drawer over the content with a tap-to-close backdrop ──
   if (isMobile) {
@@ -73,6 +200,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           {body}
         </aside>
         {modal}
+        {ide}
       </>
     )
   }

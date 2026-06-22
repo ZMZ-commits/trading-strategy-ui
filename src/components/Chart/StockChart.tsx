@@ -4,6 +4,7 @@ import { LWChart } from './LWChart'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
+import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import type { Range, Interval, OHLCBar } from '../../types'
 
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
@@ -87,6 +88,14 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
 
   const indicators = useIndicators(ticker, range, studies, effectiveInterval)
 
+  // Custom (user-published) indicators: picker entries use id `custom:<slug>`.
+  const customList = useCustomList()
+  const customSlugs = useMemo(
+    () => selectedIds.filter(id => id.startsWith('custom:')).map(id => id.slice('custom:'.length)),
+    [selectedIds],
+  )
+  const customSeries = useCustomSeries(ticker, range, customSlugs, effectiveInterval)
+
   // Live ticks → single-price bars; rendered as a line.
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
@@ -115,7 +124,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} />
+    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} custom={customSeries} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -197,6 +206,12 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                       {OVERLAY_ITEMS.map(pickRow)}
                       <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Oscillators (panes)</div>
                       {OSC_ITEMS.map(pickRow)}
+                      {customList.length > 0 && (
+                        <>
+                          <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
+                          {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
+                        </>
+                      )}
                     </div>
                   </>
                 )}

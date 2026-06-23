@@ -7,6 +7,7 @@ import {
 } from 'lightweight-charts'
 import type { OHLCBar } from '../../types'
 import type { Indicators } from '../../hooks/useIndicators'
+import type { CustomSeries } from '../../api/custom'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -16,6 +17,7 @@ interface Props {
   showVolume: boolean
   indicators: Indicators
   oscillators: string[]
+  custom?: CustomSeries[]
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -56,7 +58,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [] }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
@@ -211,6 +213,28 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
       }
     }
 
+    // Custom (user-published) indicators — generic render by kind: overlays on
+    // the price pane, oscillators each in their own pane (continuing the counter).
+    const CUSTOM_COLORS = ['#06b6d4', '#84cc16', '#f472b6', '#fb923c', '#a78bfa', '#34d399']
+    let ci = 0
+    for (const cs of custom) {
+      const pts: { time: UTCTimestamp; value: number }[] = []
+      for (let i = 0; i < cs.time.length; i++) {
+        const v = cs.values[i]
+        if (v != null) pts.push({ time: toTime(cs.time[i]), value: v })
+      }
+      if (!pts.length) continue
+      const color = CUSTOM_COLORS[ci % CUSTOM_COLORS.length]; ci++
+      if (cs.kind === 'oscillator') {
+        add(LineSeries, { color, lineWidth: 1, title: cs.name }, pane).setData(pts)
+        pane++
+      } else {
+        const s = add(LineSeries, { color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false })
+        s.setData(pts)
+        labeled.current.push({ s, label: cs.name, color })
+      }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -225,7 +249,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators }: Pro
     if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators])
+  }, [data, type, showVolume, indicators, oscillators, custom])
 
   return (
     <div className="relative w-full h-full">

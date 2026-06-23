@@ -10,6 +10,7 @@ export default defineConfig({
       '/strategies': 'http://localhost:8000',
       '/stocks': 'http://localhost:8000',
       '/market': 'http://localhost:8000',
+      '/custom': 'http://localhost:8000',
     },
   },
   test: {

@@ -3,14 +3,14 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { TopPanel } from './components/TopPanel/TopPanel'
 import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
-import { JupyterPanel } from './components/Jupyter/JupyterPanel'
+import { CodeServerPanel } from './components/IDE/CodeServerPanel'
 import { useIsMobile } from './hooks/useMediaQuery'
 import type { Strategy, Range } from './types'
 
 export default function App() {
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
-  const [jupyterOpen, setJupyterOpen] = useState(false) // left IDE panel (desktop)
+  const [ideOpen, setIdeOpen] = useState(false) // left IDE panel (desktop)
   const [activeTicker, setActiveTicker] = useState('AAPL')
   const [activeRange, setActiveRange] = useState<Range>('1M')
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
@@ -27,8 +27,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
-      {/* LEFT — Jupyter Notebook IDE (desktop only) */}
-      {!isMobile && <JupyterPanel open={jupyterOpen} onToggle={() => setJupyterOpen(o => !o)} />}
+      {/* LEFT — Web IDE (code-server, desktop only) */}
+      {!isMobile && <CodeServerPanel open={ideOpen} onToggle={() => setIdeOpen(o => !o)} />}
 
       {/* CENTER — chart + panels */}
       <main className={`flex flex-col flex-1 min-w-0 ${isMobile ? 'overflow-y-auto' : 'overflow-hidden'}`}>

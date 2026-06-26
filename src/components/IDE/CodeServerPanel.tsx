@@ -1,9 +1,10 @@
 import { useHResizable } from '../../hooks/useHResizable'
 
 // Where code-server (VS Code in the browser) is reachable FROM THE BROWSER.
-// Default is the SSH tunnel (localhost:8080). Override with VITE_CODE_SERVER_URL.
+// Default is the public HTTPS endpoint (Caddy). For local-only access via SSH
+// tunnel, set VITE_CODE_SERVER_URL=http://localhost:8080.
 const CODE_SERVER_BASE =
-  (import.meta.env.VITE_CODE_SERVER_URL as string | undefined) ?? 'http://localhost:8080'
+  (import.meta.env.VITE_CODE_SERVER_URL as string | undefined) ?? 'https://ide.zemingzhang.com'
 
 interface Props {
   open: boolean
@@ -59,7 +60,7 @@ export function CodeServerPanel({ open, onToggle }: Props) {
         </div>
         <iframe src={CODE_SERVER_BASE} title="VS Code (code-server)" className="flex-1 w-full bg-[#1e1e1e] border-0" />
         <div className="text-[10px] text-gray-600 px-2 py-1 border-t border-border flex-shrink-0">
-          Blank? Open your SSH tunnel (<code>localhost:8080</code>) and set <code>CODE_SERVER_PASSWORD</code>, or “Open in tab”.
+          Blank? Ensure DNS (<code>ide.zemingzhang.com</code>) is live and <code>CODE_SERVER_PASSWORD</code> is set, or “Open in tab”.
         </div>
       </div>
       <div

@@ -87,16 +87,18 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     <>
       <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
         <span className="text-sm font-semibold text-gray-300">Navigator</span>
-        <button
-          onClick={onToggle}
-          className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
-          aria-label={isMobile ? 'Close navigator' : 'Collapse navigator'}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d={isMobile ? 'M6 18L18 6M6 6l12 12' : 'M13 5l7 7-7 7'} />
-          </svg>
-        </button>
+        {/* Mobile uses an in-header close (X); desktop uses the pinned toggle below. */}
+        {isMobile && (
+          <button
+            onClick={onToggle}
+            className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
+            aria-label="Close navigator"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -177,21 +179,24 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
   }
 
   // ── Desktop: collapsible in-flow column on the RIGHT ──
+  // The toggle is pinned to the top-right (a fixed edge), so it stays put
+  // whether expanded or collapsed — only its chevron flips.
   return (
-    <aside className={`flex flex-col bg-panel border-l border-border transition-all duration-200 flex-shrink-0 ${isOpen ? 'w-64' : 'w-12'}`}>
-      {isOpen ? body : (
-        <div className="flex items-center justify-center p-3 border-b border-border">
-          <button
-            onClick={onToggle}
-            className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
-            aria-label="Open navigator"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7" />
-            </svg>
-          </button>
-        </div>
-      )}
+    <aside className={`relative flex flex-col bg-panel border-l border-border transition-all duration-200 flex-shrink-0 ${isOpen ? 'w-64' : 'w-12'}`}>
+      <button
+        onClick={onToggle}
+        aria-label={isOpen ? 'Collapse navigator' : 'Open navigator'}
+        title={isOpen ? 'Collapse' : 'Expand'}
+        className="absolute right-1.5 top-2 z-20 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
+      >
+        <svg
+          className={`w-4 h-4 transition-transform duration-200 ${isOpen ? '' : 'rotate-180'}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
+        </svg>
+      </button>
+      {isOpen && body}
     </aside>
   )
 }

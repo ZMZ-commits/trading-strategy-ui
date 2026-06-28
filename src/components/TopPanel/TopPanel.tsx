@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { TickerInput } from '../Chart/TickerInput'
+import { ResizeHandle } from '../common/ResizeHandle'
 
 interface StockItem {
   ticker: string
@@ -141,13 +142,7 @@ function PortfolioSection({ title, portfolios, onTickerChange }: {
 
 // ── vertical drag handle ──────────────────────────────────────────────────────
 function VDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
-  return (
-    <div
-      onMouseDown={onMouseDown}
-      className="w-1.5 flex-shrink-0 cursor-ew-resize bg-border hover:bg-blue-600 transition-colors self-stretch"
-      title="Drag to resize"
-    />
-  )
+  return <ResizeHandle orientation="vertical" onMouseDown={onMouseDown} />
 }
 
 // ── section label row shared style ───────────────────────────────────────────
@@ -297,11 +292,7 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
       </div>
 
       {/* ── Bottom drag handle (vertical resize) ── */}
-      <div
-        onMouseDown={onVResize}
-        className="h-1.5 w-full cursor-ns-resize bg-border hover:bg-blue-600 transition-colors flex-shrink-0"
-        title="Drag to resize panel height"
-      />
+      <ResizeHandle orientation="horizontal" onMouseDown={onVResize} title="Drag to resize panel height" />
       </>
       )}
     </div>

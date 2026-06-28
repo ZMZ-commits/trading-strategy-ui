@@ -58,22 +58,29 @@ export function CodeServerPanel({ open, onToggle }: Props) {
             the resize stutters. */}
         {dragging && <div className="absolute inset-0 z-10 cursor-ew-resize" />}
 
-        {/* Drag-to-resize divider on the right edge (only when expanded). */}
+        {/* Drag-to-resize divider on the right edge (only when expanded).
+            Subtle hairline at rest; blue line + 3-dot grip on hover/drag, to
+            match the other panel dividers. */}
         {open && (
-          <div className="group relative w-1.5 flex-shrink-0">
-            <div
-              onMouseDown={onDragHandleMouseDown}
-              title="Drag to resize"
-              className={`absolute inset-0 cursor-ew-resize transition-colors ${
-                dragging ? 'bg-blue-600' : 'bg-border group-hover:bg-blue-600'
-              }`}
-            />
-            {/* Hover tab to collapse the IDE back to the rail. */}
+          <div
+            onMouseDown={onDragHandleMouseDown}
+            title="Drag to resize"
+            className="group relative w-2 flex-shrink-0 flex items-center justify-center cursor-ew-resize"
+          >
+            <span className={`w-px h-full transition-colors ${dragging ? 'bg-blue-500' : 'bg-border/50 group-hover:bg-blue-500'}`} />
+            <span className={`absolute flex flex-col gap-[3px] transition-opacity ${dragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <span className="w-[3px] h-[3px] rounded-full bg-blue-400" />
+              <span className="w-[3px] h-[3px] rounded-full bg-blue-400" />
+              <span className="w-[3px] h-[3px] rounded-full bg-blue-400" />
+            </span>
+            {/* Hover tab to collapse the IDE back to the rail (stop the drag
+                from starting when this is clicked). */}
             <button
               onClick={onToggle}
+              onMouseDown={e => e.stopPropagation()}
               title="Collapse IDE"
               aria-label="Collapse IDE"
-              className="absolute top-1/2 -translate-y-1/2 -left-3 w-3.5 h-12 rounded-l bg-panel border border-border border-r-0 text-gray-400 hover:text-gray-100 hover:bg-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute top-1/2 -translate-y-1/2 -left-3 w-3.5 h-12 rounded-l bg-panel border border-border border-r-0 text-gray-400 hover:text-gray-100 hover:bg-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />

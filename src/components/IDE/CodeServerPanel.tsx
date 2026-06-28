@@ -11,63 +11,77 @@ interface Props {
   onToggle: () => void
 }
 
-/** Left-side web IDE: embeds code-server (full VS Code) via the SSH tunnel.
- *  Collapsible to a thin rail; resizable when open. Desktop only. */
+/** Left-side web IDE: embeds code-server (full VS Code). Desktop only.
+ *
+ *  The iframe is mounted ONCE on first render and never unmounted — collapsing
+ *  just hides it (width → 0) so VS Code keeps its session and never reloads.
+ *  When collapsed it shows a thin rail (like the Navigator); when open the right
+ *  edge is a drag-to-resize divider with a hover tab to collapse. No top chrome. */
 export function CodeServerPanel({ open, onToggle }: Props) {
-  const { width, onDragHandleMouseDown } = useHResizable(560, 320)
-
-  if (!open) {
-    return (
-      <div className="flex flex-col items-center gap-2 w-10 flex-shrink-0 bg-panel border-r border-border pt-2">
-        <button
-          onClick={onToggle}
-          title="Open IDE (VS Code)"
-          aria-label="Open IDE"
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500 [writing-mode:vertical-rl] rotate-180">
-          VS Code
-        </span>
-      </div>
-    )
-  }
+  const { width, dragging, onDragHandleMouseDown } = useHResizable(560, 320)
 
   return (
-    <div style={{ width }} className="flex flex-shrink-0">
-      <div className="flex flex-col flex-1 min-w-0 bg-panel border-r border-border">
-        <div className="flex items-center gap-2 h-9 px-2 border-b border-border flex-shrink-0">
-          <span className="text-xs font-semibold text-gray-300">{'</>'} VS Code</span>
-          <a
-            href={CODE_SERVER_BASE} target="_blank" rel="noreferrer"
-            className="ml-auto text-[11px] px-2 py-1 rounded text-gray-400 hover:bg-gray-700 hover:text-gray-100"
-          >
-            Open in tab ↗
-          </a>
+    <>
+      {/* Collapsed rail — kept exactly as the original thin rail. */}
+      {!open && (
+        <div className="flex flex-col items-center gap-2 w-10 flex-shrink-0 bg-panel border-r border-border pt-2">
           <button
             onClick={onToggle}
-            title="Collapse"
-            aria-label="Collapse IDE"
-            className="text-[11px] px-2 py-1 rounded text-gray-400 hover:bg-gray-700 hover:text-gray-100"
+            title="Open IDE (VS Code)"
+            aria-label="Open IDE"
+            className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+          <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500 [writing-mode:vertical-rl] rotate-180">
+            VS Code
+          </span>
         </div>
-        <iframe src={CODE_SERVER_BASE} title="VS Code (code-server)" className="flex-1 w-full bg-[#1e1e1e] border-0" />
-        <div className="text-[10px] text-gray-600 px-2 py-1 border-t border-border flex-shrink-0">
-          Blank? Ensure DNS (<code>ide.zemingzhang.com</code>) is live and <code>CODE_SERVER_PASSWORD</code> is set, or “Open in tab”.
-        </div>
-      </div>
+      )}
+
+      {/* IDE column — ALWAYS in the DOM so the iframe loads once and persists.
+          Collapsing sets width to 0 (clipped) instead of unmounting. */}
       <div
-        onMouseDown={onDragHandleMouseDown}
-        className="w-1.5 cursor-ew-resize bg-border hover:bg-blue-600 transition-colors flex-shrink-0"
-        title="Drag to resize"
-      />
-    </div>
+        style={{ width: open ? width : 0 }}
+        className="relative flex flex-shrink-0 overflow-hidden bg-[#1e1e1e]"
+      >
+        <iframe
+          src={CODE_SERVER_BASE}
+          title="VS Code (code-server)"
+          className="flex-1 w-full h-full bg-[#1e1e1e] border-0"
+        />
+
+        {/* While dragging, this overlay sits over the iframe so the parent window
+            keeps receiving mouse events — otherwise the iframe swallows them and
+            the resize stutters. */}
+        {dragging && <div className="absolute inset-0 z-10 cursor-ew-resize" />}
+
+        {/* Drag-to-resize divider on the right edge (only when expanded). */}
+        {open && (
+          <div className="group relative w-1.5 flex-shrink-0">
+            <div
+              onMouseDown={onDragHandleMouseDown}
+              title="Drag to resize"
+              className={`absolute inset-0 cursor-ew-resize transition-colors ${
+                dragging ? 'bg-blue-600' : 'bg-border group-hover:bg-blue-600'
+              }`}
+            />
+            {/* Hover tab to collapse the IDE back to the rail. */}
+            <button
+              onClick={onToggle}
+              title="Collapse IDE"
+              aria-label="Collapse IDE"
+              className="absolute top-1/2 -translate-y-1/2 -left-3 w-3.5 h-12 rounded-l bg-panel border border-border border-r-0 text-gray-400 hover:text-gray-100 hover:bg-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

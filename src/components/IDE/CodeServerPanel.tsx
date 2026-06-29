@@ -6,6 +6,11 @@ import { useHResizable } from '../../hooks/useHResizable'
 const CODE_SERVER_BASE =
   (import.meta.env.VITE_CODE_SERVER_URL as string | undefined) ?? 'https://ide.zemingzhang.com'
 
+// Open directly in the clean project workspace so the user never sees the home
+// dotfiles (~/.cache, ~/.config, ~/.local). The folder holds strategies/ and
+// indicators/.
+const CODE_SERVER_URL = `${CODE_SERVER_BASE}/?folder=/home/coder/project`
+
 interface Props {
   open: boolean
   onToggle: () => void
@@ -48,7 +53,7 @@ export function CodeServerPanel({ open, onToggle }: Props) {
         className="relative flex flex-shrink-0 overflow-hidden bg-[#1e1e1e]"
       >
         <iframe
-          src={CODE_SERVER_BASE}
+          src={CODE_SERVER_URL}
           title="VS Code (code-server)"
           className="flex-1 w-full h-full bg-[#1e1e1e] border-0"
         />

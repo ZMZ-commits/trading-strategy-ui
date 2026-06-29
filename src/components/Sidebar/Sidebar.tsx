@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
 import { StrategyList } from './StrategyList'
 import { getStrategies } from '../../api/strategies'
+import { scaffold } from '../../api/workspace'
 import type { Strategy } from '../../types'
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   onToggle: () => void
   selectedStrategy: Strategy | null
   onSelectStrategy: (s: Strategy) => void
+  /** Open the left web-IDE panel (called after scaffolding so the new folder shows). */
+  onOpenIde?: () => void
 }
 
 // Built-in indicators, split by how they render: overlays draw on the price
@@ -58,7 +61,7 @@ function Section({ title, defaultOpen = false, count, onAdd, addTitle, children 
   )
 }
 
-export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy }: Props) {
+export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde }: Props) {
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
@@ -73,8 +76,23 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     window.setTimeout(() => setToast(null), 2400)
   }, [])
 
-  // "+" → link & run a Python function (execution wired later).
-  const addFn = () => showToast('Coming soon — link & run a Python function')
+  // "+" on Indicators/Strategies → scaffold a starter folder in the IDE workspace,
+  // then open the IDE so the new folder/file is visible to edit.
+  const makeItem = useCallback(async (kind: 'strategy' | 'indicator') => {
+    const name = window.prompt(`New ${kind} name:`)?.trim()
+    if (!name) return
+    try {
+      const r = await scaffold(kind, name)
+      showToast(`Created ${kind} “${r.slug}” — opening IDE…`)
+      onOpenIde?.()
+      load()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : `Failed to create ${kind}`)
+    }
+  }, [showToast, onOpenIde, load])
+
+  // "+" on Saved Views — not wired yet.
+  const addFn = () => showToast('Coming soon — save dashboard views')
 
   const iq = indicatorQuery.toLowerCase()
   const indicatorGroups = INDICATOR_GROUPS
@@ -103,7 +121,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {/* ── Indicators ── */}
-        <Section title="Indicators" defaultOpen count={totalIndicators} onAdd={addFn} addTitle="Run a Python function">
+        <Section title="Indicators" defaultOpen count={totalIndicators} onAdd={() => makeItem('indicator')} addTitle="New indicator">
           <div className="px-2 pb-2">
             <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
           </div>
@@ -132,7 +150,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
         </Section>
 
         {/* ── Strategies ── */}
-        <Section title="Strategies" defaultOpen count={strategies.length} onAdd={addFn} addTitle="Run a Python function">
+        <Section title="Strategies" defaultOpen count={strategies.length} onAdd={() => makeItem('strategy')} addTitle="New strategy">
           <div className="px-2 pb-2">
             <StrategySearch value={strategyQuery} onChange={setStrategyQuery} placeholder="Search strategies..." />
           </div>
@@ -144,7 +162,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
         </Section>
 
         {/* ── Saved Dashboard Views ── */}
-        <Section title="Saved Dashboard Views" count={0} onAdd={addFn} addTitle="Run a Python function">
+        <Section title="Saved Dashboard Views" count={0} onAdd={addFn} addTitle="Save current view">
           <div className="px-2 pb-2">
             <StrategySearch value={viewQuery} onChange={setViewQuery} placeholder="Search views..." />
           </div>

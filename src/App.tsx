@@ -69,6 +69,7 @@ export default function App() {
         onToggle={() => setSidebarOpen(o => !o)}
         selectedStrategy={selectedStrategy}
         onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
+        onOpenIde={() => setIdeOpen(true)}
       />
     </div>
   )

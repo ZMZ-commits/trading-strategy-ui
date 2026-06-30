@@ -8,6 +8,8 @@ import {
 import type { OHLCBar } from '../../types'
 import type { Indicators } from '../../hooks/useIndicators'
 import type { CustomSeries } from '../../api/custom'
+import type { StrategyChartData } from '../../api/strategyChart'
+import { VertLinesPrimitive, type VertMarker } from './vertLinePrimitive'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -18,6 +20,7 @@ interface Props {
   indicators: Indicators
   oscillators: string[]
   custom?: CustomSeries[]
+  strategy?: StrategyChartData
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -58,7 +61,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [] }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
@@ -235,6 +238,34 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
+    // Strategy: dashed trailing line(s) on the price pane + dotted Buy/Sell
+    // vertical markers (Buy = red, Sell = green).
+    if (strategy) {
+      for (const ln of strategy.lines) {
+        const pts: { time: UTCTimestamp; value: number }[] = []
+        for (let i = 0; i < ln.time.length; i++) {
+          const v = ln.values[i]
+          if (v != null) pts.push({ time: toTime(ln.time[i]), value: v })
+        }
+        if (!pts.length) continue
+        const s = add(LineSeries, {
+          color: '#eab308', lineWidth: 2, lineStyle: LineStyle.Dashed,
+          priceLineVisible: false, lastValueVisible: false,
+        })
+        s.setData(pts)
+        labeled.current.push({ s, label: ln.name, color: '#eab308' })
+      }
+      if (strategy.signals.length && priceRef.current) {
+        const markers: VertMarker[] = strategy.signals.map(sig => ({
+          time: toTime(sig.time),
+          color: sig.type === 'buy' ? '#ef4444' : '#22c55e',
+          label: sig.type === 'buy' ? 'Buy' : 'Sell',
+        }))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(markers)) } catch { /* noop */ }
+      }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -249,7 +280,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy])
 
   return (
     <div className="relative w-full h-full">

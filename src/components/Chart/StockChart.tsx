@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
+import { useStrategyChart } from '../../hooks/useStrategyChart'
+import { listItems } from '../../api/workspace'
 import type { Range, Interval, OHLCBar } from '../../types'
 
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
@@ -96,6 +98,16 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   )
   const customSeries = useCustomSeries(ticker, range, customSlugs, effectiveInterval)
 
+  // Strategies (IDE folders): picker entries use id `strategy:<slug>`. One at a
+  // time renders its trailing line + buy/sell markers.
+  const [strategyList, setStrategyList] = useState<string[]>([])
+  useEffect(() => { listItems().then(d => setStrategyList(d.strategies)).catch(() => {}) }, [])
+  const strategySlug = useMemo(() => {
+    const id = selectedIds.find(s => s.startsWith('strategy:'))
+    return id ? id.slice('strategy:'.length) : null
+  }, [selectedIds])
+  const strategyData = useStrategyChart(ticker, range, strategySlug, effectiveInterval)
+
   // Live ticks → single-price bars; rendered as a line.
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
@@ -124,7 +136,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} custom={customSeries} />
+    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} custom={customSeries} strategy={strategyData} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -210,6 +222,12 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                         <>
                           <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
                           {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
+                        </>
+                      )}
+                      {strategyList.length > 0 && (
+                        <>
+                          <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Strategies</div>
+                          {strategyList.map(slug => pickRow({ id: `strategy:${slug}`, label: slug }))}
                         </>
                       )}
                     </div>

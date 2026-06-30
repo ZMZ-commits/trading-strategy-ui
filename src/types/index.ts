@@ -10,6 +10,8 @@ export interface Strategy {
   last_run_at?: string | null
   last_run_status?: StrategyStatus
   dir_path: string
+  /** 'workspace' = an IDE folder strategy (no run-store entry); 'store' = legacy. */
+  source?: 'workspace' | 'store'
 }
 
 export interface OHLCBar {

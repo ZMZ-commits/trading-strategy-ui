@@ -271,7 +271,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
                   key={slug}
                   slug={slug}
                   selected={selectedStrategy?.slug === slug}
-                  onClick={() => onSelectStrategy({ id: slug, name: slug, slug, created_at: '', dir_path: `strategies/${slug}` })}
+                  onClick={() => onSelectStrategy({ id: slug, name: slug, slug, created_at: '', dir_path: `strategies/${slug}`, source: 'workspace' })}
                   onContextMenu={e => openMenu(e, 'strategy', slug)}
                   onDelete={() => removeItem('strategy', slug)}
                 />

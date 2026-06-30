@@ -3,19 +3,20 @@ import { Sidebar } from './components/Sidebar/Sidebar'
 import { TopPanel } from './components/TopPanel/TopPanel'
 import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
+import { CodeServerPanel } from './components/IDE/CodeServerPanel'
 import { useIsMobile } from './hooks/useMediaQuery'
 import type { Strategy, Range } from './types'
 
 export default function App() {
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
+  const [ideOpen, setIdeOpen] = useState(false) // left IDE panel (desktop)
   const [activeTicker, setActiveTicker] = useState('AAPL')
   const [activeRange, setActiveRange] = useState<Range>('1M')
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [recentTickers, setRecentTickers] = useState<string[]>(['AAPL'])
 
-  // Sidebar starts open on desktop, closed (drawer) on phones/tablets, and
-  // follows the breakpoint as the device rotates / the window resizes.
+  // Navigator starts open on desktop, closed (drawer) on phones/tablets.
   useEffect(() => { setSidebarOpen(!isMobile) }, [isMobile])
 
   const handleTickerChange = (t: string) => {
@@ -26,13 +27,10 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
-      <Sidebar
-        isMobile={isMobile}
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(o => !o)}
-        selectedStrategy={selectedStrategy}
-        onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
-      />
+      {/* LEFT — Web IDE (code-server, desktop only) */}
+      {!isMobile && <CodeServerPanel open={ideOpen} onToggle={() => setIdeOpen(o => !o)} />}
+
+      {/* CENTER — chart + panels */}
       <main className={`flex flex-col flex-1 min-w-0 ${isMobile ? 'overflow-y-auto' : 'overflow-hidden'}`}>
         {isMobile && (
           <header className="sticky top-0 z-30 flex items-center gap-2 h-12 px-2 bg-panel border-b border-border flex-shrink-0">
@@ -63,6 +61,16 @@ export default function App() {
         />
         <BottomPanel isMobile={isMobile} ticker={activeTicker} selectedStrategy={selectedStrategy} />
       </main>
+
+      {/* RIGHT — Navigator */}
+      <Sidebar
+        isMobile={isMobile}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(o => !o)}
+        selectedStrategy={selectedStrategy}
+        onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
+        onOpenIde={() => setIdeOpen(true)}
+      />
     </div>
   )
 }

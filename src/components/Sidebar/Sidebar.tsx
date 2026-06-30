@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
 import { StrategyList } from './StrategyList'
-import { CreateStrategyModal } from './CreateStrategyModal'
-import { CustomIndicatorIDE } from './CustomIndicatorIDE'
 import { getStrategies } from '../../api/strategies'
+import { scaffold } from '../../api/workspace'
 import type { Strategy } from '../../types'
 
 interface Props {
@@ -12,12 +11,12 @@ interface Props {
   onToggle: () => void
   selectedStrategy: Strategy | null
   onSelectStrategy: (s: Strategy) => void
+  /** Open the left web-IDE panel (called after scaffolding so the new folder shows). */
+  onOpenIde?: () => void
 }
 
 // Built-in indicators, split by how they render: overlays draw on the price
-// chart (same scale as candles); oscillators draw in their own pane. Custom
-// (user-authored) indicators get added via the section's "+" (coming soon).
-// Wiring a click to toggle the indicator on the chart is a follow-up.
+// chart; oscillators draw in their own pane.
 const INDICATOR_GROUPS: { label: string; items: string[] }[] = [
   { label: 'Overlays', items: ['SMA 20', 'SMA 50', 'SMA 200', 'EMA 20', 'Bollinger Bands', 'VWAP'] },
   { label: 'Oscillators', items: ['RSI', 'MACD', 'TTM Squeeze', 'Stochastic'] },
@@ -62,13 +61,11 @@ function Section({ title, defaultOpen = false, count, onAdd, addTitle, children 
   )
 }
 
-export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy }: Props) {
+export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde }: Props) {
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
   const [viewQuery, setViewQuery] = useState('')
-  const [showModal, setShowModal] = useState(false)
-  const [showIDE, setShowIDE] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const load = useCallback(() => { getStrategies().then(setStrategies).catch(() => {}) }, [])
@@ -76,8 +73,26 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
-    window.setTimeout(() => setToast(null), 2200)
+    window.setTimeout(() => setToast(null), 2400)
   }, [])
+
+  // "+" on Indicators/Strategies → scaffold a starter folder in the IDE workspace,
+  // then open the IDE so the new folder/file is visible to edit.
+  const makeItem = useCallback(async (kind: 'strategy' | 'indicator') => {
+    const name = window.prompt(`New ${kind} name:`)?.trim()
+    if (!name) return
+    try {
+      const r = await scaffold(kind, name)
+      showToast(`Created ${kind} “${r.slug}” — opening IDE…`)
+      onOpenIde?.()
+      load()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : `Failed to create ${kind}`)
+    }
+  }, [showToast, onOpenIde, load])
+
+  // "+" on Saved Views — not wired yet.
+  const addFn = () => showToast('Coming soon — save dashboard views')
 
   const iq = indicatorQuery.toLowerCase()
   const indicatorGroups = INDICATOR_GROUPS
@@ -86,32 +101,27 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
   const totalIndicators = INDICATOR_GROUPS.reduce((n, g) => n + g.items.length, 0)
   const filteredStrategies = strategies.filter(s => s.name.toLowerCase().includes(strategyQuery.toLowerCase()))
 
-  // Shared inner content: header + collapsible sections + transient toast.
   const body = (
     <>
       <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
         <span className="text-sm font-semibold text-gray-300">Navigator</span>
-        <button
-          onClick={onToggle}
-          className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
-          aria-label={isMobile ? 'Close sidebar' : 'Toggle sidebar'}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d={isMobile ? 'M6 18L18 6M6 6l12 12' : 'M11 19l-7-7 7-7'} />
-          </svg>
-        </button>
+        {/* Mobile uses an in-header close (X); desktop uses the pinned toggle below. */}
+        {isMobile && (
+          <button
+            onClick={onToggle}
+            className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
+            aria-label="Close navigator"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* ── Indicators (built-in catalog + custom via "+") ── */}
-        <Section
-          title="Indicators"
-          defaultOpen
-          count={totalIndicators}
-          onAdd={() => setShowIDE(true)}
-          addTitle="New custom indicator (IDE)"
-        >
+        {/* ── Indicators ── */}
+        <Section title="Indicators" defaultOpen count={totalIndicators} onAdd={() => makeItem('indicator')} addTitle="New indicator">
           <div className="px-2 pb-2">
             <StrategySearch value={indicatorQuery} onChange={setIndicatorQuery} placeholder="Search indicators..." />
           </div>
@@ -139,14 +149,8 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           )}
         </Section>
 
-        {/* ── Strategies (create / run / select) ── */}
-        <Section
-          title="Strategies"
-          defaultOpen
-          count={strategies.length}
-          onAdd={() => setShowModal(true)}
-          addTitle="Create strategy"
-        >
+        {/* ── Strategies ── */}
+        <Section title="Strategies" defaultOpen count={strategies.length} onAdd={() => makeItem('strategy')} addTitle="New strategy">
           <div className="px-2 pb-2">
             <StrategySearch value={strategyQuery} onChange={setStrategyQuery} placeholder="Search strategies..." />
           </div>
@@ -157,13 +161,8 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           />
         </Section>
 
-        {/* ── Saved Dashboard Views (placeholder — not implemented yet) ── */}
-        <Section
-          title="Saved Dashboard Views"
-          count={0}
-          onAdd={() => showToast('Saved dashboard views — coming soon')}
-          addTitle="Save current view (coming soon)"
-        >
+        {/* ── Saved Dashboard Views ── */}
+        <Section title="Saved Dashboard Views" count={0} onAdd={addFn} addTitle="Save current view">
           <div className="px-2 pb-2">
             <StrategySearch value={viewQuery} onChange={setViewQuery} placeholder="Search views..." />
           </div>
@@ -179,13 +178,7 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
     </>
   )
 
-  const modal = showModal && (
-    <CreateStrategyModal onClose={() => setShowModal(false)} onCreated={() => { load(); setShowModal(false) }} />
-  )
-
-  const ide = showIDE && <CustomIndicatorIDE onClose={() => setShowIDE(false)} />
-
-  // ── Mobile: slide-in drawer over the content with a tap-to-close backdrop ──
+  // ── Mobile: slide-in drawer from the RIGHT with a tap-to-close backdrop ──
   if (isMobile) {
     return (
       <>
@@ -193,37 +186,35 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           <div className="fixed inset-0 bg-black/60 z-40" onClick={onToggle} aria-hidden="true" />
         )}
         <aside
-          className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[82vw] flex flex-col bg-panel border-r border-border shadow-2xl transition-transform duration-200 ${
-            isOpen ? 'translate-x-0' : '-translate-x-full'
+          className={`fixed inset-y-0 right-0 z-50 w-72 max-w-[82vw] flex flex-col bg-panel border-l border-border shadow-2xl transition-transform duration-200 ${
+            isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
           {body}
         </aside>
-        {modal}
-        {ide}
       </>
     )
   }
 
-  // ── Desktop: collapsible in-flow column ──
+  // ── Desktop: collapsible in-flow column on the RIGHT ──
+  // The toggle is pinned to the top-right (a fixed edge), so it stays put
+  // whether expanded or collapsed — only its chevron flips.
   return (
-    <>
-      <aside className={`flex flex-col bg-panel border-r border-border transition-all duration-200 flex-shrink-0 ${isOpen ? 'w-64' : 'w-12'}`}>
-        {isOpen ? body : (
-          <div className="flex items-center justify-center p-3 border-b border-border">
-            <button
-              onClick={onToggle}
-              className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
-              aria-label="Toggle sidebar"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-        )}
-      </aside>
-      {modal}
-    </>
+    <aside className={`relative flex flex-col bg-panel border-l border-border transition-all duration-200 flex-shrink-0 ${isOpen ? 'w-64' : 'w-12'}`}>
+      <button
+        onClick={onToggle}
+        aria-label={isOpen ? 'Collapse navigator' : 'Open navigator'}
+        title={isOpen ? 'Collapse' : 'Expand'}
+        className="absolute right-1.5 top-2 z-20 p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
+      >
+        <svg
+          className={`w-4 h-4 transition-transform duration-200 ${isOpen ? '' : 'rotate-180'}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
+        </svg>
+      </button>
+      {isOpen && body}
+    </aside>
   )
 }

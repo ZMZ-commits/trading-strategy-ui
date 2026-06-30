@@ -11,7 +11,10 @@ const BADGE: Record<string, string> = {
 }
 
 export function StrategyMetrics({ strategy }: { strategy: Strategy | null }) {
-  const { status, refetch } = useStrategyStatus(strategy?.id ?? null)
+  const isWorkspace = strategy?.source === 'workspace'
+  // Workspace (IDE) strategies aren't in the run-store, so don't poll status for
+  // them (that 404s as "Strategy not found").
+  const { status, refetch } = useStrategyStatus(isWorkspace ? null : strategy?.id ?? null)
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
 
@@ -26,6 +29,20 @@ export function StrategyMetrics({ strategy }: { strategy: Strategy | null }) {
   if (!strategy) return (
     <div className="flex-1 p-4 flex items-center justify-center">
       <p className="text-xs text-gray-600">Select a strategy to view metrics</p>
+    </div>
+  )
+
+  // IDE-authored strategy: observe-only for now (backtest/live charting WIP).
+  if (isWorkspace) return (
+    <div className="flex-1 flex flex-col p-4 overflow-hidden">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate mr-2">{strategy.name}</p>
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-700 text-gray-400 flex-shrink-0">observe-only</span>
+      </div>
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Authored in the IDE (<code className="text-gray-400">{strategy.dir_path}</code>).
+        Backtest &amp; live charting are being wired up — open it in the IDE to edit the logic.
+      </p>
     </div>
   )
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { TickerInput } from '../Chart/TickerInput'
+import { ResizeHandle } from '../common/ResizeHandle'
 
 interface StockItem {
   ticker: string
@@ -141,13 +142,7 @@ function PortfolioSection({ title, portfolios, onTickerChange }: {
 
 // ── vertical drag handle ──────────────────────────────────────────────────────
 function VDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
-  return (
-    <div
-      onMouseDown={onMouseDown}
-      className="w-1.5 flex-shrink-0 cursor-ew-resize bg-border hover:bg-blue-600 transition-colors self-stretch"
-      title="Drag to resize"
-    />
-  )
+  return <ResizeHandle orientation="vertical" onMouseDown={onMouseDown} />
 }
 
 // ── section label row shared style ───────────────────────────────────────────
@@ -216,39 +211,35 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
     )
   }
 
-  // ── Collapsed: thin bar with an expand control ──
-  if (collapsed) {
-    return (
-      <div className="flex items-center justify-between h-7 px-3 bg-panel border-b border-border flex-shrink-0">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Search &amp; Watchlist</span>
-        <button
-          onClick={() => setCollapsed(false)}
-          aria-label="Expand top panel"
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
-    )
-  }
-
   return (
-    // Root has no overflow-hidden so the autocomplete portal isn't affected
-    <div style={{ height }} className="relative flex flex-col flex-shrink-0 bg-panel border-b border-border">
-
+    // Root has no overflow-hidden so the autocomplete portal isn't affected.
+    // The toggle is pinned to the top-right (a fixed edge), so it stays in the
+    // same spot whether the panel is expanded or collapsed — only its chevron
+    // flips. The body below it shrinks/grows.
+    <div
+      style={collapsed ? undefined : { height }}
+      className={`relative flex flex-col flex-shrink-0 bg-panel border-b border-border ${collapsed ? 'h-7' : ''}`}
+    >
       <button
-        onClick={() => setCollapsed(true)}
-        aria-label="Collapse top panel"
-        title="Collapse"
-        className="absolute right-1.5 top-1 z-10 p-1 rounded hover:bg-gray-700/80 text-gray-500 hover:text-gray-200"
+        onClick={() => setCollapsed(c => !c)}
+        aria-label={collapsed ? 'Expand top panel' : 'Collapse top panel'}
+        title={collapsed ? 'Expand' : 'Collapse'}
+        className="absolute right-1.5 top-1 z-20 p-1 rounded hover:bg-gray-700/80 text-gray-500 hover:text-gray-200"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg
+          className={`w-4 h-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
         </svg>
       </button>
 
+      {collapsed ? (
+        <div className="flex items-center h-7 px-3">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Search &amp; Watchlist</span>
+        </div>
+      ) : (
+      <>
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Search + Recent (single column, stacked) ── */}
@@ -301,11 +292,9 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
       </div>
 
       {/* ── Bottom drag handle (vertical resize) ── */}
-      <div
-        onMouseDown={onVResize}
-        className="h-1.5 w-full cursor-ns-resize bg-border hover:bg-blue-600 transition-colors flex-shrink-0"
-        title="Drag to resize panel height"
-      />
+      <ResizeHandle orientation="horizontal" onMouseDown={onVResize} title="Drag to resize panel height" />
+      </>
+      )}
     </div>
   )
 }

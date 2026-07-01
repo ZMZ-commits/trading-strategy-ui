@@ -50,6 +50,18 @@ const OSC_ITEMS = [
 ]
 const ALL_ITEMS = [...OVERLAY_ITEMS, ...OSC_ITEMS]
 
+const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8]
+
+// Slice a {time, values} series to the first n points (for replay reveal).
+function sliceSeries<T extends { time: string[]; values: (number | null)[] }>(s: T, n: number): T {
+  return { ...s, time: s.time.slice(0, n), values: s.values.slice(0, n) }
+}
+function sliceIndicators<T extends Record<string, { time: string[]; values: (number | null)[] }>>(ind: T, n: number): T {
+  const out = {} as T
+  for (const k of Object.keys(ind) as (keyof T)[]) out[k] = sliceSeries(ind[k], n)
+  return out
+}
+
 export function StockChart({ isMobile = false, ticker, range, onRangeChange }: Props) {
   const isLive = range === 'NOW'
   const supportedIntervals = RANGE_INTERVALS[range] ?? []
@@ -108,6 +120,12 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   }, [selectedIds])
   const strategyData = useStrategyChart(ticker, range, strategySlug, effectiveInterval)
 
+  // ── Replay: reveal bars from the left, with play/pause + speed. ──
+  const [replayOn, setReplayOn] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [replayIdx, setReplayIdx] = useState(1)
+  const [speed, setSpeed] = useState(2)
+
   // Live ticks → single-price bars; rendered as a line.
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
@@ -115,6 +133,44 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   const chartData = isLive ? liveData : data
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
+  const fullLen = chartData.length
+
+  // (Re)start replay when the window changes or replay is toggled on.
+  useEffect(() => {
+    if (replayOn && !isLive) { setReplayIdx(1); setPlaying(true) }
+    else setPlaying(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayOn, ticker, range, effectiveInterval])
+
+  // Advance the playhead at the chosen speed.
+  useEffect(() => {
+    if (!replayOn || !playing || isLive) return
+    const id = window.setInterval(() => {
+      setReplayIdx(i => (i >= fullLen ? i : i + 1))
+    }, Math.max(30, 500 / speed))
+    return () => window.clearInterval(id)
+  }, [replayOn, playing, speed, fullLen, isLive])
+
+  // Stop at the end.
+  useEffect(() => {
+    if (playing && replayIdx >= fullLen && fullLen > 0) setPlaying(false)
+  }, [playing, replayIdx, fullLen])
+
+  const revealN = replayOn && !isLive ? Math.min(replayIdx, fullLen) : fullLen
+  const replaySlicing = replayOn && !isLive && revealN < fullLen
+  const cutoffMs = replaySlicing && chartData[revealN - 1]
+    ? new Date(chartData[revealN - 1].timestamp).getTime()
+    : Infinity
+  const displayData = replaySlicing ? chartData.slice(0, revealN) : chartData
+  const displayIndicators = replaySlicing ? sliceIndicators(indicators, revealN) : indicators
+  const displayCustom = replaySlicing ? customSeries.map(s => sliceSeries(s, revealN)) : customSeries
+  const displayStrategy = useMemo(() => {
+    if (!replaySlicing || !strategyData) return strategyData
+    return {
+      lines: strategyData.lines.map(ln => sliceSeries(ln, revealN)),
+      signals: strategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
+    }
+  }, [replaySlicing, revealN, cutoffMs, strategyData])
 
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
@@ -136,7 +192,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} custom={customSeries} strategy={strategyData} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -198,6 +254,16 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                 }`}
               >
                 Vol
+              </button>
+
+              <button
+                onClick={() => setReplayOn(v => !v)}
+                title="Bar replay"
+                className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                  replayOn ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
+                }`}
+              >
+                ▶ Replay
               </button>
 
               {/* Indicator picker */}
@@ -285,6 +351,40 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
       </div>
 
       <div className={isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}>{body}</div>
+
+      {/* Replay transport */}
+      {replayOn && !isLive && (
+        <div className="flex items-center gap-2 mt-2 px-1 flex-shrink-0">
+          <button
+            onClick={() => { setReplayIdx(1); setPlaying(true) }}
+            title="Restart" aria-label="Restart"
+            className="px-2 py-1 text-xs rounded border border-border text-gray-300 hover:bg-gray-700"
+          >⏮</button>
+          <button
+            onClick={() => setPlaying(p => !p)}
+            title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'}
+            className="px-2 py-1 text-xs rounded border border-border text-gray-100 hover:bg-gray-700 w-8"
+          >{playing ? '⏸' : '▶'}</button>
+          <input
+            type="range" min={1} max={Math.max(1, fullLen)} value={revealN}
+            onChange={e => { setPlaying(false); setReplayIdx(Number(e.target.value)) }}
+            className="flex-1 accent-blue-600"
+            aria-label="Replay position"
+          />
+          <span className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">{revealN}/{fullLen}</span>
+          {displayData.length > 0 && (
+            <span className="text-[11px] text-gray-500 whitespace-nowrap hidden sm:inline">
+              {new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString()}
+            </span>
+          )}
+          <select
+            value={speed} onChange={e => setSpeed(Number(e.target.value))} title="Speed"
+            className="text-xs bg-surface border border-border rounded px-1 py-1 text-gray-300"
+          >
+            {REPLAY_SPEEDS.map(s => <option key={s} value={s}>{s}×</option>)}
+          </select>
+        </div>
+      )}
     </div>
   )
 }

@@ -12,7 +12,7 @@ export function useCustomList(): CustomIndicatorMeta[] {
 }
 
 /** Fetches the series for the selected custom indicators (one request per slug). */
-export function useCustomSeries(ticker: string, range: Range, slugs: string[], interval?: Interval): CustomSeries[] {
+export function useCustomSeries(ticker: string, range: Range, slugs: string[], interval?: Interval, start?: string, end?: string): CustomSeries[] {
   const [series, setSeries] = useState<CustomSeries[]>([])
   const key = slugs.join(',')
 
@@ -22,12 +22,12 @@ export function useCustomSeries(ticker: string, range: Range, slugs: string[], i
       return
     }
     let cancelled = false
-    Promise.all(slugs.map(s => getCustomSeries(ticker, s, range, interval)))
+    Promise.all(slugs.map(s => getCustomSeries(ticker, s, range, interval, start, end)))
       .then(results => { if (!cancelled) setSeries(results.flat()) })
       .catch(() => { if (!cancelled) setSeries([]) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, range, key, interval])
+  }, [ticker, range, key, interval, start, end])
 
   return series
 }

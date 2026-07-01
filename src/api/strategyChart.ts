@@ -22,9 +22,12 @@ export async function getStrategyChart(
   slug: string,
   range: Range,
   interval?: Interval,
+  start?: string,
+  end?: string,
 ): Promise<StrategyChartData> {
   const params = new URLSearchParams({ range })
   if (interval) params.set('interval', interval)
+  if (start && end) { params.set('start', start); params.set('end', end) }
   const res = await fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/strategy/${encodeURIComponent(slug)}?${params}`)
   if (!res.ok) return EMPTY
   const j = await res.json()

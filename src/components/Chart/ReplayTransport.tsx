@@ -31,9 +31,9 @@ export function ReplayTransport({
   const pct = total > 1 ? ((index - 1) / (total - 1)) * 100 : 0
 
   return (
-    <div className="group mt-2 flex items-center gap-2 flex-shrink-0 select-none">
-      {/* Transport buttons — reveal on hover */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div className="flex items-center gap-2 flex-shrink-0 select-none">
+      {/* Transport buttons */}
+      <div className="flex items-center gap-0.5">
         <button
           onClick={onRestart} title="Restart" aria-label="Restart"
           className="p-1 rounded text-gray-400 hover:text-gray-100 hover:bg-gray-700"
@@ -50,7 +50,7 @@ export function ReplayTransport({
           <div className="h-full bg-blue-500 rounded-full transition-[width] duration-100" style={{ width: `${pct}%` }} />
         </div>
         <div
-          className="absolute h-3 w-3 rounded-full bg-blue-400 shadow -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+          className="absolute h-3 w-3 rounded-full bg-blue-400 shadow -translate-x-1/2 pointer-events-none"
           style={{ left: `${pct}%` }}
         />
         <input
@@ -61,8 +61,8 @@ export function ReplayTransport({
         />
       </div>
 
-      {/* Counter + date + speed — reveal on hover */}
-      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Counter + date + speed */}
+      <div className="flex items-center gap-2">
         <span className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">{index}/{total}</span>
         {currentDate && <span className="text-[11px] text-gray-500 whitespace-nowrap hidden sm:inline">{currentDate}</span>}
         <select

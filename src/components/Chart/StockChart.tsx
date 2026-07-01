@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
+import { DateRangePicker } from './DateRangePicker'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
@@ -376,21 +377,18 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                 {customOpen && !cwin && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setCustomOpen(false)} />
-                    <div className="absolute left-0 mt-1 z-20 w-56 bg-surface border border-border rounded-md shadow-xl p-2 text-xs lg:left-auto lg:right-0 space-y-2">
-                      <label className="block text-gray-500">From
-                        <input type="date" value={cFrom} onChange={e => setCFrom(e.target.value)}
-                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200" />
-                      </label>
-                      <label className="block text-gray-500">To
-                        <input type="date" value={cTo} onChange={e => setCTo(e.target.value)}
-                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200" />
-                      </label>
-                      <label className="block text-gray-500">Interval
+                    <div className="absolute left-0 mt-1 z-20 w-64 bg-surface border border-border rounded-md shadow-xl p-2 text-xs lg:left-auto lg:right-0 space-y-2">
+                      <DateRangePicker start={cFrom} end={cTo} onChange={(s, e) => { setCFrom(s); setCTo(e) }} />
+                      <div className="text-[11px] text-gray-500 tabular-nums">
+                        {cFrom && cTo ? `${cFrom} → ${cTo}` : cFrom ? `${cFrom} → …` : 'Pick a start & end date'}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Interval</span>
                         <select value={cIv} onChange={e => setCIv(e.target.value as Interval)}
-                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200">
+                          className="flex-1 bg-panel border border-border rounded px-1.5 py-1 text-gray-200">
                           {(['1d', '1h', '1w', '1mo'] as Interval[]).map(iv => <option key={iv} value={iv}>{iv}</option>)}
                         </select>
-                      </label>
+                      </div>
                       <button onClick={applyCustom} disabled={!cFrom || !cTo}
                         className="w-full py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium">
                         Apply
@@ -408,23 +406,26 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
         </div>
       </div>
 
-      <div className={isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}>{body}</div>
-
-      {/* Replay transport */}
-      {replayOn && !isLive && (
-        <ReplayTransport
-          playing={playing}
-          onPlayPause={() => setPlaying(p => !p)}
-          onRestart={() => { setReplayIdx(1); setPlaying(true) }}
-          index={revealN}
-          total={fullLen}
-          onSeek={n => { setPlaying(false); setReplayIdx(n) }}
-          speed={speed}
-          onSpeedChange={setSpeed}
-          speeds={REPLAY_SPEEDS}
-          currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
-        />
-      )}
+      <div className={`relative group ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
+        {body}
+        {/* Replay transport — overlays the chart bottom, reveals on hover */}
+        {replayOn && !isLive && (
+          <div className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-8 bg-gradient-to-t from-panel via-panel/85 to-transparent opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <ReplayTransport
+              playing={playing}
+              onPlayPause={() => setPlaying(p => !p)}
+              onRestart={() => { setReplayIdx(1); setPlaying(true) }}
+              index={revealN}
+              total={fullLen}
+              onSeek={n => { setPlaying(false); setReplayIdx(n) }}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              speeds={REPLAY_SPEEDS}
+              currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

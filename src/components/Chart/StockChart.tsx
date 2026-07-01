@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
+import { ReplayTransport } from './ReplayTransport'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
@@ -259,11 +260,12 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
               <button
                 onClick={() => setReplayOn(v => !v)}
                 title="Bar replay"
-                className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
                   replayOn ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
                 }`}
               >
-                ▶ Replay
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                Replay
               </button>
 
               {/* Indicator picker */}
@@ -354,36 +356,18 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
 
       {/* Replay transport */}
       {replayOn && !isLive && (
-        <div className="flex items-center gap-2 mt-2 px-1 flex-shrink-0">
-          <button
-            onClick={() => { setReplayIdx(1); setPlaying(true) }}
-            title="Restart" aria-label="Restart"
-            className="px-2 py-1 text-xs rounded border border-border text-gray-300 hover:bg-gray-700"
-          >⏮</button>
-          <button
-            onClick={() => setPlaying(p => !p)}
-            title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'}
-            className="px-2 py-1 text-xs rounded border border-border text-gray-100 hover:bg-gray-700 w-8"
-          >{playing ? '⏸' : '▶'}</button>
-          <input
-            type="range" min={1} max={Math.max(1, fullLen)} value={revealN}
-            onChange={e => { setPlaying(false); setReplayIdx(Number(e.target.value)) }}
-            className="flex-1 accent-blue-600"
-            aria-label="Replay position"
-          />
-          <span className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">{revealN}/{fullLen}</span>
-          {displayData.length > 0 && (
-            <span className="text-[11px] text-gray-500 whitespace-nowrap hidden sm:inline">
-              {new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString()}
-            </span>
-          )}
-          <select
-            value={speed} onChange={e => setSpeed(Number(e.target.value))} title="Speed"
-            className="text-xs bg-surface border border-border rounded px-1 py-1 text-gray-300"
-          >
-            {REPLAY_SPEEDS.map(s => <option key={s} value={s}>{s}×</option>)}
-          </select>
-        </div>
+        <ReplayTransport
+          playing={playing}
+          onPlayPause={() => setPlaying(p => !p)}
+          onRestart={() => { setReplayIdx(1); setPlaying(true) }}
+          index={revealN}
+          total={fullLen}
+          onSeek={n => { setPlaying(false); setReplayIdx(n) }}
+          speed={speed}
+          onSpeedChange={setSpeed}
+          speeds={REPLAY_SPEEDS}
+          currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
+        />
       )}
     </div>
   )

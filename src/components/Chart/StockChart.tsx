@@ -74,12 +74,30 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     ? intervalOverride
     : undefined
 
+  // Custom date window: when set, data is fetched for [start,end] at cwin.interval
+  // instead of the preset range.
+  const [cwin, setCwin] = useState<{ start: string; end: string; interval: Interval } | null>(null)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [cFrom, setCFrom] = useState('')
+  const [cTo, setCTo] = useState('')
+  const [cIv, setCIv] = useState<Interval>('1d')
+  const winStart = cwin?.start
+  const winEnd = cwin?.end
+  const dataInterval = cwin ? cwin.interval : effectiveInterval
+
+  const applyCustom = () => {
+    if (!cFrom || !cTo) return
+    setCwin({ start: cFrom, end: cTo, interval: cIv })
+    setCustomOpen(false)
+  }
+
   const handleRangeChange = (r: Range) => {
     setIntervalOverride(undefined)
+    setCwin(null)
     onRangeChange(r)
   }
 
-  const { data, loading, error } = useStockData(ticker, range, effectiveInterval)
+  const { data, loading, error } = useStockData(ticker, range, dataInterval, winStart, winEnd)
   const { ticks, connected } = useLiveTicks(ticker, isLive)
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
@@ -101,7 +119,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     [selectedIds],
   )
 
-  const indicators = useIndicators(ticker, range, studies, effectiveInterval)
+  const indicators = useIndicators(ticker, range, studies, dataInterval, winStart, winEnd)
 
   // Custom (user-published) indicators: picker entries use id `custom:<slug>`.
   const customList = useCustomList()
@@ -109,7 +127,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     () => selectedIds.filter(id => id.startsWith('custom:')).map(id => id.slice('custom:'.length)),
     [selectedIds],
   )
-  const customSeries = useCustomSeries(ticker, range, customSlugs, effectiveInterval)
+  const customSeries = useCustomSeries(ticker, range, customSlugs, dataInterval, winStart, winEnd)
 
   // Strategies (IDE folders): picker entries use id `strategy:<slug>`. One at a
   // time renders its trailing line + buy/sell markers.
@@ -119,7 +137,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     const id = selectedIds.find(s => s.startsWith('strategy:'))
     return id ? id.slice('strategy:'.length) : null
   }, [selectedIds])
-  const strategyData = useStrategyChart(ticker, range, strategySlug, effectiveInterval)
+  const strategyData = useStrategyChart(ticker, range, strategySlug, dataInterval, winStart, winEnd)
 
   // ── Replay: reveal bars from the left, with play/pause + speed. ──
   const [replayOn, setReplayOn] = useState(false)
@@ -343,6 +361,44 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                   )}
                 </div>
               )}
+
+              {/* Custom date window */}
+              <div className="relative">
+                <button
+                  onClick={() => { if (cwin) { setCwin(null) } else { setCustomOpen(o => !o) } }}
+                  title={cwin ? 'Clear custom window' : 'Custom date range'}
+                  className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors whitespace-nowrap ${
+                    cwin ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
+                  }`}
+                >
+                  {cwin ? `${cwin.start} → ${cwin.end} ✕` : 'Custom ▾'}
+                </button>
+                {customOpen && !cwin && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setCustomOpen(false)} />
+                    <div className="absolute left-0 mt-1 z-20 w-56 bg-surface border border-border rounded-md shadow-xl p-2 text-xs lg:left-auto lg:right-0 space-y-2">
+                      <label className="block text-gray-500">From
+                        <input type="date" value={cFrom} onChange={e => setCFrom(e.target.value)}
+                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200" />
+                      </label>
+                      <label className="block text-gray-500">To
+                        <input type="date" value={cTo} onChange={e => setCTo(e.target.value)}
+                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200" />
+                      </label>
+                      <label className="block text-gray-500">Interval
+                        <select value={cIv} onChange={e => setCIv(e.target.value as Interval)}
+                          className="mt-0.5 w-full bg-panel border border-border rounded px-1.5 py-1 text-gray-200">
+                          {(['1d', '1h', '1w', '1mo'] as Interval[]).map(iv => <option key={iv} value={iv}>{iv}</option>)}
+                        </select>
+                      </label>
+                      <button onClick={applyCustom} disabled={!cFrom || !cTo}
+                        className="w-full py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium">
+                        Apply
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
           {/* Range tabs scroll horizontally on touch; inline on desktop */}

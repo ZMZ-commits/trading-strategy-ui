@@ -1,9 +1,10 @@
 import { API_BASE } from './config'
 import type { OHLCBar, StockSnapshot, IndexQuote, Range, Interval } from '../types'
 
-export async function getHistory(ticker: string, range: Range, interval?: Interval): Promise<{ ticker: string; range: string; bars: OHLCBar[] }> {
+export async function getHistory(ticker: string, range: Range, interval?: Interval, start?: string, end?: string): Promise<{ ticker: string; range: string; bars: OHLCBar[] }> {
   const params = new URLSearchParams({ range })
   if (interval) params.set('interval', interval)
+  if (start && end) { params.set('start', start); params.set('end', end) }
   const res = await fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/history?${params}`)
   if (!res.ok) throw new Error(`Failed to fetch history for ${ticker}`)
   return res.json()

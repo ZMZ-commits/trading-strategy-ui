@@ -166,6 +166,11 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
   const effectiveType = isLive ? 'line' : chartType
   const fullLen = chartData.length
 
+  // Identifies the actual viewing window; the chart re-fits (end-to-end) only
+  // when this changes -- switching ticker/range/interval/custom dates -- and
+  // preserves zoom for everything else (indicator/strategy toggles, replay).
+  const fitKey = `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
+
   // (Re)start replay when the window changes or replay is toggled on.
   useEffect(() => {
     if (replayOn && !isLive) { setReplayIdx(1); setPlaying(true) }
@@ -223,12 +228,12 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
-      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} />
+      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} />
     }
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (

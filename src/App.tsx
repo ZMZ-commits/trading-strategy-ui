@@ -59,7 +59,7 @@ export default function App() {
           range={activeRange}
           onRangeChange={setActiveRange}
         />
-        <BottomPanel isMobile={isMobile} ticker={activeTicker} selectedStrategy={selectedStrategy} />
+        <BottomPanel isMobile={isMobile} ticker={activeTicker} range={activeRange} selectedStrategy={selectedStrategy} />
       </main>
 
       {/* RIGHT — Navigator */}

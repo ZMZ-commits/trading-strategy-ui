@@ -8,8 +8,7 @@ import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import { useStrategyChart } from '../../hooks/useStrategyChart'
-import { listItems } from '../../api/workspace'
-import type { Range, Interval, OHLCBar } from '../../types'
+import type { Range, Interval, OHLCBar, Strategy } from '../../types'
 
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
 
@@ -34,6 +33,11 @@ interface Props {
   ticker: string
   range: Range
   onRangeChange: (r: Range) => void
+  /** Workspace strategy selected in the Navigator — rendered on the chart. */
+  selectedStrategy?: Strategy | null
+  /** Reports the last-revealed bar timestamp during replay (null when off) so
+   *  the metrics panel can show trades live. */
+  onReplayCutoff?: (ts: string | null) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -64,7 +68,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
   return out
 }
 
-export function StockChart({ isMobile = false, ticker, range, onRangeChange }: Props) {
+export function StockChart({ isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff }: Props) {
   const isLive = range === 'NOW'
   const supportedIntervals = RANGE_INTERVALS[range] ?? []
   const [intervalOverride, setIntervalOverride] = useState<Interval | undefined>(undefined)
@@ -130,14 +134,9 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   )
   const customSeries = useCustomSeries(ticker, range, customSlugs, dataInterval, winStart, winEnd)
 
-  // Strategies (IDE folders): picker entries use id `strategy:<slug>`. One at a
-  // time renders its trailing line + buy/sell markers.
-  const [strategyList, setStrategyList] = useState<string[]>([])
-  useEffect(() => { listItems().then(d => setStrategyList(d.strategies)).catch(() => {}) }, [])
-  const strategySlug = useMemo(() => {
-    const id = selectedIds.find(s => s.startsWith('strategy:'))
-    return id ? id.slice('strategy:'.length) : null
-  }, [selectedIds])
+  // The strategy shown on the chart follows the Navigator selection (a workspace
+  // strategy), so it stays in sync with the metrics panel.
+  const strategySlug = selectedStrategy?.source === 'workspace' ? selectedStrategy.slug : null
   const strategyData = useStrategyChart(ticker, range, strategySlug, dataInterval, winStart, winEnd)
 
   // ── Replay: reveal bars from the left, with play/pause + speed. ──
@@ -191,6 +190,10 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
       signals: strategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
     }
   }, [replaySlicing, revealN, cutoffMs, strategyData])
+
+  // Report the replay playhead time so the metrics panel can show trades live.
+  const replayCutoffTs = replaySlicing && displayData.length ? displayData[displayData.length - 1].timestamp : null
+  useEffect(() => { onReplayCutoff?.(replayCutoffTs) }, [replayCutoffTs, onReplayCutoff])
 
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
@@ -309,12 +312,6 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                         <>
                           <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
                           {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
-                        </>
-                      )}
-                      {strategyList.length > 0 && (
-                        <>
-                          <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Strategies</div>
-                          {strategyList.map(slug => pickRow({ id: `strategy:${slug}`, label: slug }))}
                         </>
                       )}
                     </div>

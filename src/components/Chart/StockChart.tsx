@@ -139,6 +139,18 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
   const strategySlug = selectedStrategy?.source === 'workspace' ? selectedStrategy.slug : null
   const strategyData = useStrategyChart(ticker, range, strategySlug, dataInterval, winStart, winEnd)
 
+  // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
+  // on automatically when it's selected (like a mod bringing its dependencies).
+  const reqKey = strategyData.requires.join(',')
+  useEffect(() => {
+    if (!reqKey) return
+    const req = reqKey.split(',')
+    setSelectedIds(prev => {
+      const add = req.filter(r => r && !prev.includes(r))
+      return add.length ? [...prev, ...add] : prev
+    })
+  }, [reqKey])
+
   // ── Replay: reveal bars from the left, with play/pause + speed. ──
   const [replayOn, setReplayOn] = useState(false)
   const [playing, setPlaying] = useState(false)

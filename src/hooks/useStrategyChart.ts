@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { getStrategyChart, type StrategyChartData } from '../api/strategyChart'
 import type { Range, Interval } from '../types'
 
-const EMPTY: StrategyChartData = { lines: [], signals: [] }
+const EMPTY: StrategyChartData = { lines: [], signals: [], logs: [], requires: [], pnl: 0 }
 
 /** Fetches the trailing line + buy/sell signals for the selected strategy. */
 export function useStrategyChart(

@@ -8,12 +8,20 @@ export interface StrategySignal {
   price: number
 }
 
+export interface StrategyLog {
+  time: string | null
+  msg: string
+}
+
 export interface StrategyChartData {
   lines: CustomSeries[]
   signals: StrategySignal[]
+  logs: StrategyLog[]
+  requires: string[]
+  pnl: number
 }
 
-const EMPTY: StrategyChartData = { lines: [], signals: [] }
+const EMPTY: StrategyChartData = { lines: [], signals: [], logs: [], requires: [], pnl: 0 }
 
 /** Run an IDE strategy over a ticker/range; returns its plotted line(s) + the
  *  buy/sell signal points for the chart markers. */
@@ -36,5 +44,11 @@ export async function getStrategyChart(
     const series = s as { kind?: string; time: string[]; values: (number | null)[] }
     lines.push({ name, kind: series.kind ?? 'overlay', time: series.time, values: series.values })
   }
-  return { lines, signals: (j.signals ?? []) as StrategySignal[] }
+  return {
+    lines,
+    signals: (j.signals ?? []) as StrategySignal[],
+    logs: (j.logs ?? []) as StrategyLog[],
+    requires: (j.requires ?? []) as string[],
+    pnl: typeof j.pnl === 'number' ? j.pnl : 0,
+  }
 }

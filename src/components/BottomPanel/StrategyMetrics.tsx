@@ -28,6 +28,7 @@ export function StrategyMetrics({ strategy, ticker, range, cutoff }: Props) {
   const chart = useStrategyChart(ticker, range, isWorkspace ? (strategy?.slug ?? null) : null)
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
+  const [view, setView] = useState<'trades' | 'log'>('trades')
 
   const handleRun = async () => {
     if (!strategy) return
@@ -58,12 +59,34 @@ export function StrategyMetrics({ strategy, ticker, range, cutoff }: Props) {
       else if (s.type === 'sell' && lastBuy != null) { pnl = s.price - lastBuy; total += pnl; trades++; lastBuy = null }
       return { key: i, time: s.time, type: s.type, price: s.price, pnl }
     })
+    const visibleLogs = chart.logs.filter(l => !l.time || new Date(l.time).getTime() <= cutoffMs)
+    const TabBtn = ({ v, label }: { v: 'trades' | 'log'; label: string }) => (
+      <button
+        onClick={() => setView(v)}
+        className={`px-2 py-0.5 rounded ${view === v ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'}`}
+      >{label}</button>
+    )
     return (
       <div className="flex-1 flex flex-col p-4 overflow-hidden">
-        <div className="flex items-center justify-between mb-2 flex-shrink-0">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate mr-2">{strategy.name}</p>
-          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-700 text-gray-400 flex-shrink-0">observe-only</span>
+        <div className="flex items-center justify-between mb-2 flex-shrink-0 gap-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate">{strategy.name}</p>
+          <div className="flex items-center gap-1 text-[11px] flex-shrink-0">
+            <TabBtn v="trades" label="Trades" />
+            <TabBtn v="log" label="Console" />
+          </div>
         </div>
+        {view === 'log' ? (
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin font-mono text-[11px] leading-relaxed">
+            {visibleLogs.length === 0 ? (
+              <p className="text-xs text-gray-600 font-sans">No console output</p>
+            ) : visibleLogs.map((l, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-gray-600 whitespace-nowrap">{l.time ? new Date(l.time).toLocaleDateString() : ''}</span>
+                <span className="text-gray-300 whitespace-pre">{l.msg}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           {rows.length === 0 ? (
             <p className="text-xs text-gray-600">{cutoff ? 'No trades yet' : 'No trades in this window'}</p>
@@ -100,6 +123,7 @@ export function StrategyMetrics({ strategy, ticker, range, cutoff }: Props) {
             </table>
           )}
         </div>
+        )}
         {/* Total pinned at the bottom */}
         <div className="border-t border-border pt-2 mt-2 flex items-center justify-between flex-shrink-0">
           <span className="text-xs text-gray-500">

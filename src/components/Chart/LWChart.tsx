@@ -241,6 +241,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // Strategy: dashed trailing line(s) on the price pane + dotted Buy/Sell
     // vertical markers (Buy = red, Sell = green).
     if (strategy) {
+      const STRAT_COLORS = ['#eab308', '#22d3ee', '#f472b6', '#a78bfa', '#4ade80']
+      let si = 0
       for (const ln of strategy.lines) {
         const pts: { time: UTCTimestamp; value: number }[] = []
         for (let i = 0; i < ln.time.length; i++) {
@@ -248,12 +250,13 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
           if (v != null) pts.push({ time: toTime(ln.time[i]), value: v })
         }
         if (!pts.length) continue
+        const color = STRAT_COLORS[si % STRAT_COLORS.length]; si++
         const s = add(LineSeries, {
-          color: '#eab308', lineWidth: 2, lineStyle: LineStyle.Dashed,
+          color, lineWidth: 2, lineStyle: LineStyle.Dashed,
           priceLineVisible: false, lastValueVisible: false,
         })
         s.setData(pts)
-        labeled.current.push({ s, label: ln.name, color: '#eab308' })
+        labeled.current.push({ s, label: ln.name, color })
       }
       if (strategy.signals.length && priceRef.current) {
         const markers: VertMarker[] = strategy.signals.map(sig => ({

@@ -20,7 +20,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
         <div className="border-b border-border" style={{ height: 250 }}>
           <StockDetails ticker={ticker} />
         </div>
-        <div style={{ height: 280 }}>
+        <div className="flex flex-col" style={{ height: 280 }}>
           <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
         </div>
       </div>
@@ -60,7 +60,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
           <StockDetails ticker={ticker} />
         </div>
         <ResizeHandle orientation="vertical" onMouseDown={onHSplitDown} title="Drag to resize horizontally" />
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
           <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
         </div>
       </div>

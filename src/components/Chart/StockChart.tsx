@@ -198,6 +198,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
   const displayStrategy = useMemo(() => {
     if (!replaySlicing || !strategyData) return strategyData
     return {
+      ...strategyData,
       lines: strategyData.lines.map(ln => sliceSeries(ln, revealN)),
       signals: strategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
     }

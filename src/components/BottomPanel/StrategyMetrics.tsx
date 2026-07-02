@@ -15,9 +15,11 @@ interface Props {
   strategy: Strategy | null
   ticker: string
   range: Range
+  /** During replay, only show trades up to this bar time (null = show all). */
+  cutoff?: string | null
 }
 
-export function StrategyMetrics({ strategy, ticker, range }: Props) {
+export function StrategyMetrics({ strategy, ticker, range, cutoff }: Props) {
   const isWorkspace = strategy?.source === 'workspace'
   // Workspace (IDE) strategies aren't in the run-store, so don't poll status for
   // them (that 404s as "Strategy not found"); instead we pull their buy/sell
@@ -43,10 +45,14 @@ export function StrategyMetrics({ strategy, ticker, range }: Props) {
 
   // IDE-authored strategy: show its buy/sell transactions + total P&L (per share).
   if (isWorkspace) {
+    // During replay only count trades up to the playhead, so the list + total
+    // build up live as the replay plays.
+    const cutoffMs = cutoff ? new Date(cutoff).getTime() : Infinity
+    const visible = chart.signals.filter(s => new Date(s.time).getTime() <= cutoffMs)
     let lastBuy: number | null = null
     let total = 0
     let trades = 0
-    const rows = chart.signals.map((s, i) => {
+    const rows = visible.map((s, i) => {
       let pnl: number | null = null
       if (s.type === 'buy') lastBuy = s.price
       else if (s.type === 'sell' && lastBuy != null) { pnl = s.price - lastBuy; total += pnl; trades++; lastBuy = null }
@@ -58,9 +64,9 @@ export function StrategyMetrics({ strategy, ticker, range }: Props) {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate mr-2">{strategy.name}</p>
           <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-700 text-gray-400 flex-shrink-0">observe-only</span>
         </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
           {rows.length === 0 ? (
-            <p className="text-xs text-gray-600">No trades in this window</p>
+            <p className="text-xs text-gray-600">{cutoff ? 'No trades yet' : 'No trades in this window'}</p>
           ) : (
             <table className="w-full text-xs">
               <thead>

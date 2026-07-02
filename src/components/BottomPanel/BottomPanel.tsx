@@ -6,9 +6,9 @@ import { StrategyMetrics } from './StrategyMetrics'
 import { ResizeHandle } from '../common/ResizeHandle'
 import type { Strategy, Range } from '../../types'
 
-interface Props { isMobile?: boolean; ticker: string; range: Range; selectedStrategy: Strategy | null }
+interface Props { isMobile?: boolean; ticker: string; range: Range; selectedStrategy: Strategy | null; replayCutoff?: string | null }
 
-export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy }: Props) {
+export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy, replayCutoff }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown } = useResizable(240, 120, 'up', () => setCollapsed(true))
   const { width: leftWidth, onDragHandleMouseDown: onHSplitDown } = useHResizable(280)
@@ -21,7 +21,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy 
           <StockDetails ticker={ticker} />
         </div>
         <div style={{ height: 280 }}>
-          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} />
+          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
         </div>
       </div>
     )
@@ -61,7 +61,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy 
         </div>
         <ResizeHandle orientation="vertical" onMouseDown={onHSplitDown} title="Drag to resize horizontally" />
         <div className="flex-1 min-w-0 overflow-hidden">
-          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} />
+          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
         </div>
       </div>
       </>

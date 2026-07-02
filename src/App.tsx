@@ -15,6 +15,7 @@ export default function App() {
   const [activeRange, setActiveRange] = useState<Range>('1M')
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [recentTickers, setRecentTickers] = useState<string[]>(['AAPL'])
+  const [replayCutoff, setReplayCutoff] = useState<string | null>(null) // replay playhead time
 
   // Navigator starts open on desktop, closed (drawer) on phones/tablets.
   useEffect(() => { setSidebarOpen(!isMobile) }, [isMobile])
@@ -58,8 +59,10 @@ export default function App() {
           ticker={activeTicker}
           range={activeRange}
           onRangeChange={setActiveRange}
+          selectedStrategy={selectedStrategy}
+          onReplayCutoff={setReplayCutoff}
         />
-        <BottomPanel isMobile={isMobile} ticker={activeTicker} range={activeRange} selectedStrategy={selectedStrategy} />
+        <BottomPanel isMobile={isMobile} ticker={activeTicker} range={activeRange} selectedStrategy={selectedStrategy} replayCutoff={replayCutoff} />
       </main>
 
       {/* RIGHT — Navigator */}

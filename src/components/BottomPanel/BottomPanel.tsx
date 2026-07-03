@@ -16,7 +16,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
   // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──
   if (isMobile) {
     return (
-      <div className="flex flex-col flex-shrink-0 bg-panel border-t border-border">
+      <div className="flex flex-col flex-shrink-0 bg-surface border-t border-border">
         <div className="border-b border-border" style={{ height: 250 }}>
           <StockDetails ticker={ticker} />
         </div>
@@ -32,7 +32,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
     // the same spot whether expanded or collapsed — only its chevron flips.
     <div
       style={collapsed ? undefined : { height }}
-      className={`relative flex flex-col flex-shrink-0 bg-panel border-t border-border ${collapsed ? 'h-7' : ''}`}
+      className={`relative flex flex-col flex-shrink-0 bg-surface border-t border-border ${collapsed ? 'h-7' : ''}`}
     >
       <button
         onClick={() => setCollapsed(c => !c)}

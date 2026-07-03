@@ -423,7 +423,10 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
         </div>
       </div>
 
-      <div className={`relative group ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
+      {/* The plot area gets the lighter `surface` tone (matches the IDE's editor/
+          file-view pane), distinct from the darker `panel` toolbar above it --
+          same relationship as VS Code's tab bar vs. editor content. */}
+      <div className={`relative group bg-surface ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
         {/* Replay transport — overlays the chart bottom, reveals on hover */}
         {replayOn && !isLive && (

@@ -177,7 +177,7 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
   // ── Mobile/tablet: stack the sections; no mouse-drag dividers ──
   if (isMobile) {
     return (
-      <div className="flex flex-col flex-shrink-0 bg-surface border-b border-border">
+      <div className="flex flex-col flex-shrink-0 bg-panel border-b border-border">
         {/* Search + recent (recent as a horizontal chip strip) */}
         <div className="p-2 overflow-visible border-b border-border/50">
           <TickerInput current={activeTicker} onSubmit={onTickerChange} />
@@ -218,7 +218,7 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
     // flips. The body below it shrinks/grows.
     <div
       style={collapsed ? undefined : { height }}
-      className={`relative flex flex-col flex-shrink-0 border-b border-border ${collapsed ? 'bg-panel h-7' : 'bg-surface'}`}
+      className={`relative flex flex-col flex-shrink-0 bg-panel border-b border-border ${collapsed ? 'h-7' : ''}`}
     >
       <button
         onClick={() => setCollapsed(c => !c)}

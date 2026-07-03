@@ -299,12 +299,14 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
 
               <button
                 onClick={() => setReplayOn(v => !v)}
-                title="Bar replay"
+                title={replayOn ? (playing ? 'Playing — click to exit replay' : 'Paused — click to exit replay') : 'Bar replay'}
                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
                   replayOn ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
                 }`}
               >
-                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d={replayOn && playing ? 'M6 5h3.5v14H6zm8.5 0H18v14h-3.5z' : 'M8 5v14l11-7z'} />
+                </svg>
                 Replay
               </button>
 

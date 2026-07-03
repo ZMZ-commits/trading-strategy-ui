@@ -23,30 +23,31 @@ function Icon({ path }: { path: string }) {
   )
 }
 
-/** Replay transport: a thin always-visible progress bar; the buttons, counter
- *  and speed reveal on hover (video-player style). Seek by dragging the bar. */
+/** Replay transport: a self-contained "liquid glass" pill (dark, frosted,
+ *  rounded) placed ABOVE the chart in normal flow -- not an overlay on top of
+ *  it, so it can't fight the chart for clicks and is always reachable. */
 export function ReplayTransport({
   playing, onPlayPause, onRestart, index, total, onSeek, speed, onSpeedChange, speeds, currentDate,
 }: Props) {
   const pct = total > 1 ? ((index - 1) / (total - 1)) * 100 : 0
 
   return (
-    <div className="flex items-center gap-2 flex-shrink-0 select-none">
+    <div className="flex items-center gap-3 select-none rounded-full border border-white/10 bg-black/40 backdrop-blur-xl px-3 py-2 shadow-lg shadow-black/30">
       {/* Transport buttons */}
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 flex-shrink-0">
         <button
           onClick={onRestart} title="Restart" aria-label="Restart"
-          className="p-1 rounded text-gray-400 hover:text-gray-100 hover:bg-gray-700"
+          className="p-1 rounded-full text-gray-300 hover:text-white hover:bg-white/10"
         ><Icon path={RESTART} /></button>
         <button
           onClick={onPlayPause} title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'}
-          className="p-1 rounded text-gray-200 hover:text-white hover:bg-gray-700"
+          className="p-1 rounded-full text-white hover:bg-white/10"
         ><Icon path={playing ? PAUSE : PLAY} /></button>
       </div>
 
-      {/* Seekable progress bar — always visible */}
+      {/* Seekable progress bar */}
       <div className="relative flex-1 h-4 flex items-center">
-        <div className="h-1 w-full rounded-full bg-gray-700 overflow-hidden">
+        <div className="h-1 w-full rounded-full bg-white/15 overflow-hidden">
           <div className="h-full bg-blue-500 rounded-full transition-[width] duration-100" style={{ width: `${pct}%` }} />
         </div>
         <div
@@ -62,14 +63,14 @@ export function ReplayTransport({
       </div>
 
       {/* Counter + date + speed */}
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">{index}/{total}</span>
-        {currentDate && <span className="text-[11px] text-gray-500 whitespace-nowrap hidden sm:inline">{currentDate}</span>}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-[11px] text-gray-300 tabular-nums whitespace-nowrap">{index}/{total}</span>
+        {currentDate && <span className="text-[11px] text-gray-400 whitespace-nowrap hidden sm:inline">{currentDate}</span>}
         <select
           value={speed} onChange={e => onSpeedChange(Number(e.target.value))} title="Speed"
-          className="text-xs bg-surface border border-border rounded px-1 py-0.5 text-gray-300"
+          className="text-xs bg-white/10 border border-white/10 rounded-full px-2 py-0.5 text-gray-200"
         >
-          {speeds.map(s => <option key={s} value={s}>{s}×</option>)}
+          {speeds.map(s => <option key={s} value={s} className="bg-gray-900 text-gray-100">{s}×</option>)}
         </select>
       </div>
     </div>

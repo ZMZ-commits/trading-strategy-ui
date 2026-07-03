@@ -423,25 +423,28 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
         </div>
       </div>
 
-      <div className={`relative group ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
+      {/* Replay transport — a normal row ABOVE the chart (not an overlay on top
+          of it), so it never fights the chart for clicks and stays reachable
+          the whole time replay is on. */}
+      {replayOn && !isLive && (
+        <div className="mb-2 flex-shrink-0">
+          <ReplayTransport
+            playing={playing}
+            onPlayPause={() => setPlaying(p => !p)}
+            onRestart={() => { setReplayIdx(1); setPlaying(true) }}
+            index={revealN}
+            total={fullLen}
+            onSeek={n => { setPlaying(false); setReplayIdx(n) }}
+            speed={speed}
+            onSpeedChange={setSpeed}
+            speeds={REPLAY_SPEEDS}
+            currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
+          />
+        </div>
+      )}
+
+      <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
-        {/* Replay transport — overlays the chart bottom, reveals on hover */}
-        {replayOn && !isLive && (
-          <div className="absolute inset-x-0 bottom-0 px-2 pb-1.5 pt-8 bg-gradient-to-t from-panel via-panel/85 to-transparent opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-            <ReplayTransport
-              playing={playing}
-              onPlayPause={() => setPlaying(p => !p)}
-              onRestart={() => { setReplayIdx(1); setPlaying(true) }}
-              index={revealN}
-              total={fullLen}
-              onSeek={n => { setPlaying(false); setReplayIdx(n) }}
-              speed={speed}
-              onSpeedChange={setSpeed}
-              speeds={REPLAY_SPEEDS}
-              currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
-            />
-          </div>
-        )}
       </div>
     </div>
   )

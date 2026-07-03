@@ -32,7 +32,7 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
     // the same spot whether expanded or collapsed — only its chevron flips.
     <div
       style={collapsed ? undefined : { height }}
-      className={`relative flex flex-col flex-shrink-0 bg-surface border-t border-border ${collapsed ? 'h-7' : ''}`}
+      className={`relative flex flex-col flex-shrink-0 border-t border-border ${collapsed ? 'bg-panel h-7' : 'bg-surface'}`}
     >
       <button
         onClick={() => setCollapsed(c => !c)}

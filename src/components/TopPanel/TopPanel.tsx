@@ -218,7 +218,7 @@ export function TopPanel({ isMobile = false, activeTicker, recentTickers, onTick
     // flips. The body below it shrinks/grows.
     <div
       style={collapsed ? undefined : { height }}
-      className={`relative flex flex-col flex-shrink-0 bg-surface border-b border-border ${collapsed ? 'h-7' : ''}`}
+      className={`relative flex flex-col flex-shrink-0 border-b border-border ${collapsed ? 'bg-panel h-7' : 'bg-surface'}`}
     >
       <button
         onClick={() => setCollapsed(c => !c)}

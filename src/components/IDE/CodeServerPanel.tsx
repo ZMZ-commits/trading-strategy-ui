@@ -50,12 +50,12 @@ export function CodeServerPanel({ open, onToggle }: Props) {
           Collapsing sets width to 0 (clipped) instead of unmounting. */}
       <div
         style={{ width: open ? width : 0 }}
-        className="relative flex flex-shrink-0 overflow-hidden bg-[#1e1e1e]"
+        className="relative flex flex-shrink-0 overflow-hidden bg-surface"
       >
         <iframe
           src={CODE_SERVER_URL}
           title="VS Code (code-server)"
-          className="flex-1 w-full h-full bg-[#1e1e1e] border-0"
+          className="flex-1 w-full h-full bg-surface border-0"
         />
 
         {/* While dragging, this overlay sits over the iframe so the parent window

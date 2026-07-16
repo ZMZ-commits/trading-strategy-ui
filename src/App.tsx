@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Sidebar } from './components/Sidebar/Sidebar'
+import { Sidebar, type SidebarView } from './components/Sidebar/Sidebar'
 import { TopPanel } from './components/TopPanel/TopPanel'
 import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
 import { CodeServerPanel } from './components/IDE/CodeServerPanel'
 import { useIsMobile } from './hooks/useMediaQuery'
+import type { DatasetMeta, BacktestMeta } from './api/datasets'
 import type { Strategy, Range } from './types'
 
 export default function App() {
@@ -16,6 +17,12 @@ export default function App() {
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [recentTickers, setRecentTickers] = useState<string[]>(['AAPL'])
   const [replayCutoff, setReplayCutoff] = useState<string | null>(null) // replay playhead time
+
+  // Lab Platform: which sidebar view is active, and (in Lab mode) the stored
+  // dataset + backtest run currently driving the main chart + bottom panel.
+  const [sidebarView, setSidebarView] = useState<SidebarView>('trading')
+  const [activeDataset, setActiveDataset] = useState<DatasetMeta | null>(null)
+  const [activeBacktest, setActiveBacktest] = useState<BacktestMeta | null>(null)
 
   // Navigator starts open on desktop, closed (drawer) on phones/tablets.
   useEffect(() => { setSidebarOpen(!isMobile) }, [isMobile])
@@ -61,8 +68,18 @@ export default function App() {
           onRangeChange={setActiveRange}
           selectedStrategy={selectedStrategy}
           onReplayCutoff={setReplayCutoff}
+          dataset={sidebarView === 'lab' ? activeDataset : null}
+          datasetBacktest={sidebarView === 'lab' ? activeBacktest : null}
         />
-        <BottomPanel isMobile={isMobile} ticker={activeTicker} range={activeRange} selectedStrategy={selectedStrategy} replayCutoff={replayCutoff} />
+        <BottomPanel
+          isMobile={isMobile}
+          ticker={activeTicker}
+          range={activeRange}
+          selectedStrategy={selectedStrategy}
+          replayCutoff={replayCutoff}
+          dataset={sidebarView === 'lab' ? activeDataset : null}
+          datasetBacktest={sidebarView === 'lab' ? activeBacktest : null}
+        />
       </main>
 
       {/* RIGHT — Navigator */}
@@ -74,7 +91,12 @@ export default function App() {
         onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
         onOpenIde={() => setIdeOpen(true)}
         ticker={activeTicker}
-        range={activeRange}
+        sidebarView={sidebarView}
+        onSidebarViewChange={setSidebarView}
+        activeDataset={activeDataset}
+        onSelectDataset={setActiveDataset}
+        activeBacktest={activeBacktest}
+        onSelectBacktest={setActiveBacktest}
       />
     </div>
   )

@@ -3,25 +3,43 @@ import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { StockDetails } from './StockDetails'
 import { StrategyMetrics } from './StrategyMetrics'
+import { DatasetTable } from './DatasetTable'
+import { DatasetBacktestPanel } from './DatasetBacktestPanel'
 import { ResizeHandle } from '../common/ResizeHandle'
+import type { DatasetMeta, BacktestMeta } from '../../api/datasets'
 import type { Strategy, Range } from '../../types'
 
-interface Props { isMobile?: boolean; ticker: string; range: Range; selectedStrategy: Strategy | null; replayCutoff?: string | null }
+interface Props {
+  isMobile?: boolean
+  ticker: string
+  range: Range
+  selectedStrategy: Strategy | null
+  replayCutoff?: string | null
+  /** Lab Platform: when set, shows the dataset's row table + backtest results
+   *  instead of live StockDetails/StrategyMetrics. */
+  dataset?: DatasetMeta | null
+  datasetBacktest?: BacktestMeta | null
+}
 
-export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy, replayCutoff }: Props) {
+export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy, replayCutoff, dataset, datasetBacktest }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown } = useResizable(240, 120, 'up', () => setCollapsed(true))
   const { width: leftWidth, onDragHandleMouseDown: onHSplitDown } = useHResizable(280)
+
+  const leftContent = dataset ? <DatasetTable dataset={dataset} /> : <StockDetails ticker={ticker} />
+  const rightContent = dataset
+    ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} />
+    : <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
 
   // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──
   if (isMobile) {
     return (
       <div className="flex flex-col flex-shrink-0 bg-panel border-t border-border">
         <div className="border-b border-border" style={{ height: 250 }}>
-          <StockDetails ticker={ticker} />
+          {leftContent}
         </div>
         <div className="flex flex-col" style={{ height: 280 }}>
-          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
+          {rightContent}
         </div>
       </div>
     )
@@ -50,18 +68,20 @@ export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy,
 
       {collapsed ? (
         <div className="flex items-center h-7 px-3">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Details &amp; Metrics</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+            {dataset ? 'Dataset & Backtest' : 'Details & Metrics'}
+          </span>
         </div>
       ) : (
       <>
       <ResizeHandle orientation="horizontal" onMouseDown={onDragHandleMouseDown} />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div style={{ width: leftWidth, minWidth: 150 }} className="flex-shrink-0 overflow-hidden">
-          <StockDetails ticker={ticker} />
+          {leftContent}
         </div>
         <ResizeHandle orientation="vertical" onMouseDown={onHSplitDown} title="Drag to resize horizontally" />
         <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
-          <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
+          {rightContent}
         </div>
       </div>
       </>

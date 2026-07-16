@@ -1,4 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useResizable } from '../../hooks/useResizable'
+import { useHResizable } from '../../hooks/useHResizable'
+import { ResizeHandle } from '../common/ResizeHandle'
 import {
   createDataset, listDatasets, cancelDataset, deleteDataset,
   createBacktest, listBacktests, cancelBacktest,
@@ -28,30 +31,41 @@ const STATUS_COLOR: Record<string, string> = {
 function StatusBadge({ status, progress }: { status: string; progress?: { done: number; total: number } }) {
   const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null
   return (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLOR[status] ?? 'bg-gray-700 text-gray-400'}`}>
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_COLOR[status] ?? 'bg-gray-700 text-gray-400'}`}>
       {status}{status === 'running' && pct != null ? ` ${pct}%` : ''}
     </span>
   )
 }
 
-/** Lab Platform: create a durable, server-stored OHLCV dataset (ticker + date
- *  range + granularity), watch the pull job's progress, then configure and run
- *  a workspace strategy against it as a tracked backtest job. Selecting a
- *  ready dataset (or a completed backtest) reports up to App, which switches
- *  the main chart + bottom panel into "dataset mode" to display it. */
-export function LabDashboard({
-  defaultTicker,
-  activeDatasetId,
-  onSelectDataset,
-  activeBacktestId,
-  onSelectBacktest,
-}: {
+function SectionLabel({ text }: { text: string }) {
+  return (
+    <div className="px-2.5 py-1 border-b border-border/50 flex-shrink-0 bg-surface/30">
+      <p className="text-[9px] font-bold uppercase tracking-widest text-gray-500">{text}</p>
+    </div>
+  )
+}
+
+interface Props {
+  isMobile?: boolean
   defaultTicker: string
   activeDatasetId: string | null
   onSelectDataset: (d: DatasetMeta | null) => void
   activeBacktestId: string | null
   onSelectBacktest: (b: BacktestMeta | null) => void
-}) {
+}
+
+/** Lab Platform's top expansion (mirrors TopPanel's collapsible/resizable
+ *  column layout): create datasets, browse all of them, and manage the
+ *  selected dataset's strategy runs -- all in one wide, dedicated area instead
+ *  of the cramped right Navigator. */
+export function LabTopPanel({
+  isMobile = false, defaultTicker, activeDatasetId, onSelectDataset, activeBacktestId, onSelectBacktest,
+}: Props) {
+  const [collapsed, setCollapsed] = useState(false)
+  const { height, onDragHandleMouseDown: onVResize } = useResizable(220, 52, 'down', () => setCollapsed(true))
+  const { width: leftW, onDragHandleMouseDown: onLeftDrag } = useHResizable(220, 160)
+  const { width: midW, onDragHandleMouseDown: onMidDrag } = useHResizable(340, 200)
+
   const [datasets, setDatasets] = useState<DatasetMeta[]>([])
   const [strategies, setStrategies] = useState<string[]>([])
   const [backtests, setBacktests] = useState<BacktestMeta[]>([])
@@ -115,52 +129,50 @@ export function LabDashboard({
     onSelectBacktest(null)
   }
 
-  return (
+  // ── New Dataset column ──
+  const newDatasetColumn = (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {/* ── Create dataset ── */}
-        <div className="p-3 border-b border-border space-y-2">
-          <p className="text-[10px] text-gray-500 uppercase tracking-wide">New dataset</p>
-          <form onSubmit={handleCreate} className="space-y-1.5">
-            <input
-              value={ticker} onChange={e => setTicker(e.target.value)} placeholder="Ticker"
-              className="w-full bg-surface border border-border rounded px-2 py-1 text-xs text-gray-100 uppercase"
-            />
-            <div className="flex items-center gap-1.5">
-              <input
-                type="date" value={start} onChange={e => setStart(e.target.value)}
-                className="flex-1 min-w-0 bg-surface border border-border rounded px-1.5 py-1 text-[11px] text-gray-200"
-              />
-              <span className="text-gray-600 text-[10px]">to</span>
-              <input
-                type="date" value={end} onChange={e => setEnd(e.target.value)}
-                className="flex-1 min-w-0 bg-surface border border-border rounded px-1.5 py-1 text-[11px] text-gray-200"
-              />
-            </div>
-            <div className="flex items-center gap-1.5">
-              <select
-                value={interval} onChange={e => setInterval_(e.target.value as Interval)}
-                className="flex-1 bg-surface border border-border rounded px-1.5 py-1 text-xs text-gray-200"
-              >
-                {INTERVALS.map(iv => <option key={iv} value={iv}>{iv}</option>)}
-              </select>
-              <button
-                type="submit" disabled={creating}
-                className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium flex-shrink-0"
-              >
-                {creating ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-          </form>
-          {error && <p className="text-[11px] text-red-400">{error}</p>}
+      <SectionLabel text="New Dataset" />
+      <form onSubmit={handleCreate} className="p-2 space-y-1.5 overflow-y-auto scrollbar-thin">
+        <input
+          value={ticker} onChange={e => setTicker(e.target.value)} placeholder="Ticker"
+          className="w-full bg-surface border border-border rounded px-2 py-1 text-xs text-gray-100 uppercase"
+        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date" value={start} onChange={e => setStart(e.target.value)}
+            className="flex-1 min-w-0 bg-surface border border-border rounded px-1.5 py-1 text-[11px] text-gray-200"
+          />
+          <span className="text-gray-600 text-[10px]">to</span>
+          <input
+            type="date" value={end} onChange={e => setEnd(e.target.value)}
+            className="flex-1 min-w-0 bg-surface border border-border rounded px-1.5 py-1 text-[11px] text-gray-200"
+          />
         </div>
+        <select
+          value={interval} onChange={e => setInterval_(e.target.value as Interval)}
+          className="w-full bg-surface border border-border rounded px-1.5 py-1 text-xs text-gray-200"
+        >
+          {INTERVALS.map(iv => <option key={iv} value={iv}>{iv}</option>)}
+        </select>
+        <button
+          type="submit" disabled={creating}
+          className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium"
+        >
+          {creating ? 'Creating…' : 'Create'}
+        </button>
+        {error && <p className="text-[11px] text-red-400">{error}</p>}
+      </form>
+    </div>
+  )
 
-        {/* ── Dataset list ── */}
-        <div className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-gray-600">
-          Datasets {datasets.length > 0 && <span className="text-gray-700">({datasets.length})</span>}
-        </div>
+  // ── Datasets browse column ──
+  const datasetsColumn = (
+    <div className="flex flex-col h-full overflow-hidden">
+      <SectionLabel text={`Datasets${datasets.length ? ` (${datasets.length})` : ''}`} />
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
         {datasets.length === 0 ? (
-          <p className="px-3 py-2 text-[11px] text-gray-600">None yet — create one above</p>
+          <p className="px-3 py-2 text-[11px] text-gray-600">None yet — create one to the left</p>
         ) : (
           <ul>
             {datasets.map(d => (
@@ -208,32 +220,38 @@ export function LabDashboard({
             ))}
           </ul>
         )}
+      </div>
+    </div>
+  )
 
-        {/* ── Backtest runner + history (for the active dataset) ── */}
-        {activeDataset && (
-          <div className="border-t border-border mt-2">
-            <div className="px-3 pt-2 pb-1 text-[9px] font-bold uppercase tracking-widest text-gray-600">
-              Backtest — {activeDataset.ticker}
-            </div>
-            <div className="px-3 pb-2 flex items-center gap-1.5">
-              <select
-                value={strategySlug} onChange={e => setStrategySlug(e.target.value)}
-                className="flex-1 bg-surface border border-border rounded px-1.5 py-1 text-xs text-gray-200"
-              >
-                <option value="">Select strategy…</option>
-                {strategies.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <button
-                onClick={handleRunBacktest} disabled={!strategySlug}
-                className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium flex-shrink-0"
-              >
-                Run
-              </button>
-            </div>
+  // ── Strategies column (for the active dataset) ──
+  const strategiesColumn = (
+    <div className="flex flex-col h-full overflow-hidden">
+      <SectionLabel text={activeDataset ? `Strategies — ${activeDataset.ticker}` : 'Strategies'} />
+      {!activeDataset ? (
+        <p className="px-3 py-2 text-[11px] text-gray-600">Select a ready dataset to run a strategy against it</p>
+      ) : (
+        <>
+          <div className="p-2 flex items-center gap-1.5 border-b border-border/50 flex-shrink-0">
+            <select
+              value={strategySlug} onChange={e => setStrategySlug(e.target.value)}
+              className="flex-1 bg-surface border border-border rounded px-1.5 py-1 text-xs text-gray-200"
+            >
+              <option value="">Select strategy…</option>
+              {strategies.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button
+              onClick={handleRunBacktest} disabled={!strategySlug}
+              className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium flex-shrink-0"
+            >
+              Run
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
             {backtests.length === 0 ? (
-              <p className="px-3 pb-2 text-[11px] text-gray-600">No runs yet</p>
+              <p className="px-3 py-2 text-[11px] text-gray-600">No runs yet</p>
             ) : (
-              <ul className="pb-2">
+              <ul>
                 {backtests.map(b => (
                   <li key={b.id}>
                     <button
@@ -268,11 +286,65 @@ export function LabDashboard({
               </ul>
             )}
           </div>
-        )}
+        </>
+      )}
+    </div>
+  )
+
+  // ── Mobile: stack the three sections; no mouse-drag dividers ──
+  if (isMobile) {
+    return (
+      <div className="flex flex-col flex-shrink-0 bg-panel border-b border-border">
+        <div className="max-h-56 overflow-hidden border-b border-border/50">{newDatasetColumn}</div>
+        <div className="max-h-56 overflow-hidden border-b border-border/50">{datasetsColumn}</div>
+        <div className="max-h-56 overflow-hidden">{strategiesColumn}</div>
       </div>
-      <div className="px-3 py-1.5 text-[10px] text-gray-600 border-t border-border flex-shrink-0">
-        Idealized backtests: no fees/slippage. Per-share P&amp;L.
+    )
+  }
+
+  return (
+    // Same pinned-toggle pattern as TopPanel: stays in the same spot whether
+    // expanded or collapsed, only the chevron flips.
+    <div
+      style={collapsed ? undefined : { height }}
+      className={`relative flex flex-col flex-shrink-0 bg-panel border-b border-border ${collapsed ? 'h-7' : ''}`}
+    >
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        aria-label={collapsed ? 'Expand top panel' : 'Collapse top panel'}
+        title={collapsed ? 'Expand' : 'Collapse'}
+        className="absolute right-1.5 top-1 z-20 p-1 rounded hover:bg-gray-700/80 text-gray-500 hover:text-gray-200"
+      >
+        <svg
+          className={`w-4 h-4 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
+
+      {collapsed ? (
+        <div className="flex items-center h-7 px-3">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">Datasets &amp; Strategies</span>
+        </div>
+      ) : (
+      <>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div style={{ width: leftW }} className="flex-shrink-0 overflow-hidden border-r border-border">
+          {newDatasetColumn}
+        </div>
+        <ResizeHandle orientation="vertical" onMouseDown={onLeftDrag} />
+        <div style={{ width: midW }} className="flex-shrink-0 overflow-hidden border-r border-border">
+          {datasetsColumn}
+        </div>
+        <ResizeHandle orientation="vertical" onMouseDown={onMidDrag} />
+        <div className="flex-1 min-w-[180px] overflow-hidden">
+          {strategiesColumn}
+        </div>
       </div>
+      <ResizeHandle orientation="horizontal" onMouseDown={onVResize} title="Drag to resize panel height" />
+      </>
+      )}
     </div>
   )
 }

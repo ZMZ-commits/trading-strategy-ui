@@ -435,7 +435,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
       {replayOn && !isLive && (
         <div className="group relative flex-shrink-0 h-9 flex items-center justify-center">
           <div
-            className="opacity-0 scale-95 pointer-events-none
+            className="w-full max-w-2xl opacity-0 scale-95 pointer-events-none
                        group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto
                        transition-all duration-150"
           >

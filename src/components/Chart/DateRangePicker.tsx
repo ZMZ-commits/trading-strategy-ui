@@ -4,6 +4,10 @@ interface Props {
   start: string // 'YYYY-MM-DD' or ''
   end: string
   onChange: (start: string, end: string) => void
+  /** Optional bounds (e.g. a Lab dataset's own stored start/end) -- days
+   *  outside [minDate,maxDate] are greyed out and not clickable. */
+  minDate?: string
+  maxDate?: string
 }
 
 const fmt = (d: Date) =>
@@ -20,10 +24,12 @@ const sameDay = (a: Date, b: Date) =>
 
 /** Compact single-month calendar range picker: click a start day, then an end
  *  day; the span highlights. Clicking again starts a new range. No deps. */
-export function DateRangePicker({ start, end, onChange }: Props) {
+export function DateRangePicker({ start, end, onChange, minDate, maxDate }: Props) {
   const startD = parse(start)
   const endD = parse(end)
-  const [view, setView] = useState<Date>(() => startD ?? new Date())
+  const minD = minDate ? parse(minDate) : null
+  const maxD = maxDate ? parse(maxDate) : null
+  const [view, setView] = useState<Date>(() => startD ?? minD ?? new Date())
 
   const year = view.getFullYear()
   const month = view.getMonth()
@@ -36,8 +42,10 @@ export function DateRangePicker({ start, end, onChange }: Props) {
 
   const inRange = (d: Date) => startD && endD && d > startD && d < endD
   const isEnd = (d: Date) => (startD && sameDay(d, startD)) || (endD && sameDay(d, endD))
+  const isDisabled = (d: Date) => (minD != null && d < minD) || (maxD != null && d > maxD)
 
   const pick = (d: Date) => {
+    if (isDisabled(d)) return
     if (!startD || (startD && endD)) onChange(fmt(d), '')       // begin a new range
     else if (d < startD) onChange(fmt(d), '')                   // clicked before start → restart
     else onChange(start, fmt(d))                                // set the end
@@ -64,9 +72,10 @@ export function DateRangePicker({ start, end, onChange }: Props) {
       <div className="grid grid-cols-7 gap-0.5">
         {cells.map((d, i) => d ? (
           <button
-            type="button" key={i} onClick={() => pick(d)}
+            type="button" key={i} onClick={() => pick(d)} disabled={isDisabled(d)}
             className={`h-6 text-[10px] rounded transition-colors ${
-              isEnd(d) ? 'bg-blue-600 text-white'
+              isDisabled(d) ? 'text-gray-700 cursor-not-allowed'
+                : isEnd(d) ? 'bg-blue-600 text-white'
                 : inRange(d) ? 'bg-blue-600/25 text-blue-200'
                 : 'text-gray-300 hover:bg-gray-700'
             }`}

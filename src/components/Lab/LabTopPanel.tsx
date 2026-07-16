@@ -72,6 +72,7 @@ export function LabTopPanel({
   const [strategySlug, setStrategySlug] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  const [name, setName] = useState('')
   const [ticker, setTicker] = useState(defaultTicker)
   const [start, setStart] = useState(todayISO(-90))
   const [end, setEnd] = useState(todayISO())
@@ -104,7 +105,8 @@ export function LabTopPanel({
     if (!ticker.trim() || !start || !end) return
     setCreating(true); setError(null)
     try {
-      await createDataset(ticker.trim().toUpperCase(), start, end, interval)
+      await createDataset(ticker.trim().toUpperCase(), start, end, interval, name.trim())
+      setName('')
       refreshDatasets()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create dataset')
@@ -134,6 +136,10 @@ export function LabTopPanel({
     <div className="flex flex-col h-full overflow-hidden">
       <SectionLabel text="New Dataset" />
       <form onSubmit={handleCreate} className="p-2 space-y-1.5 overflow-y-auto scrollbar-thin">
+        <input
+          value={name} onChange={e => setName(e.target.value)} placeholder="Name (optional)"
+          className="w-full bg-surface border border-border rounded px-2 py-1 text-xs text-gray-100"
+        />
         <input
           value={ticker} onChange={e => setTicker(e.target.value)} placeholder="Ticker"
           className="w-full bg-surface border border-border rounded px-2 py-1 text-xs text-gray-100 uppercase"
@@ -187,12 +193,12 @@ export function LabTopPanel({
                 >
                   <div className="flex items-center justify-between gap-1.5">
                     <span className={`text-xs font-semibold truncate ${d.id === activeDatasetId ? 'text-blue-300' : 'text-gray-300'}`}>
-                      {d.ticker}
+                      {d.name || d.ticker}
                     </span>
                     <StatusBadge status={d.status} progress={d.progress} />
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[10px] text-gray-600 truncate">{d.start} → {d.end} · {d.interval}</span>
+                    <span className="text-[10px] text-gray-600 truncate">{d.ticker} · {d.start} → {d.end} · {d.interval}</span>
                     <span className="flex items-center gap-2 flex-shrink-0">
                       {d.row_count > 0 && <span className="text-[10px] text-gray-600">{d.row_count} rows</span>}
                       {(d.status === 'pending' || d.status === 'running') && (
@@ -206,7 +212,7 @@ export function LabTopPanel({
                         role="button" tabIndex={-1}
                         onClick={e => {
                           e.stopPropagation()
-                          if (window.confirm(`Delete dataset "${d.ticker} ${d.start}→${d.end}"?`)) {
+                          if (window.confirm(`Delete dataset "${d.name || d.ticker}"?`)) {
                             if (d.id === activeDatasetId) onSelectDataset(null)
                             deleteDataset(d.id).then(refreshDatasets)
                           }

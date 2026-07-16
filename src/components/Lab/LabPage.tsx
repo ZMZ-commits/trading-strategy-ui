@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { LabTopPanel } from './LabTopPanel'
 import { StockChart } from '../Chart/StockChart'
 import { BottomPanel } from '../BottomPanel/BottomPanel'
@@ -20,6 +21,10 @@ interface Props {
  *  so switching modes feels like navigating to a different page while the
  *  app's overall skeleton (and the IDE/Navigator around it) stays familiar. */
 export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, onSelectBacktest, onReplayCutoff }: Props) {
+  // Range tabs act as a clamped window over the active dataset's own stored
+  // bars (StockChart/windowBars already cap to whatever's actually available),
+  // so this just needs to be real state -- not a Lab-wide concern beyond this page.
+  const [range, setRange] = useState<Range>('1M')
   return (
     <>
       <LabTopPanel
@@ -33,8 +38,8 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
       <StockChart
         isMobile={isMobile}
         ticker={dataset?.ticker ?? ticker}
-        range={'1M' as Range}
-        onRangeChange={() => {}}
+        range={range}
+        onRangeChange={setRange}
         onReplayCutoff={onReplayCutoff}
         dataset={dataset}
         datasetBacktest={backtest}
@@ -42,7 +47,7 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
       <BottomPanel
         isMobile={isMobile}
         ticker={dataset?.ticker ?? ticker}
-        range={'1M' as Range}
+        range={range}
         selectedStrategy={null}
         dataset={dataset}
         datasetBacktest={backtest}

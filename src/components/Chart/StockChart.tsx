@@ -8,7 +8,8 @@ import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import { useStrategyChart } from '../../hooks/useStrategyChart'
-import { getDatasetBars, backtestToChartData, type DatasetMeta, type BacktestMeta } from '../../api/datasets'
+import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta } from '../../api/datasets'
+import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
 import type { StrategyChartData } from '../../api/strategyChart'
 import type { Range, Interval, OHLCBar, Strategy } from '../../types'
 
@@ -103,7 +104,9 @@ export function StockChart({
     return () => { cancelled = true }
   }, [dataset])
   const liveTicker = isDatasetMode ? '' : ticker
-  const supportedIntervals = RANGE_INTERVALS[range] ?? []
+  // In dataset mode you can only view at the dataset's own stored granularity
+  // or something coarser (aggregated up) -- there's no live-range concept.
+  const supportedIntervals = isDatasetMode ? availableIntervals(dataset!.interval) : (RANGE_INTERVALS[range] ?? [])
   const [intervalOverride, setIntervalOverride] = useState<Interval | undefined>(undefined)
   const [intervalOpen, setIntervalOpen] = useState(false)
 
@@ -122,6 +125,11 @@ export function StockChart({
   const winStart = cwin?.start
   const winEnd = cwin?.end
   const dataInterval = cwin ? cwin.interval : effectiveInterval
+  // Custom window's own interval choices: in dataset mode, only the dataset's
+  // native interval or coarser is actually viewable (mirrors supportedIntervals).
+  const customIntervalOptions: Interval[] = isDatasetMode
+    ? supportedIntervals
+    : (['1d', '1h', '1w', '1mo'] as Interval[])
 
   const applyCustom = () => {
     if (!cFrom || !cTo) return
@@ -157,15 +165,50 @@ export function StockChart({
     [selectedIds],
   )
 
-  const indicators = useIndicators(liveTicker, range, studies, dataInterval, winStart, winEnd)
+  const liveIndicators = useIndicators(liveTicker, range, studies, dataInterval, winStart, winEnd)
 
   // Custom (user-published) indicators: picker entries use id `custom:<slug>`.
+  // Not offered in dataset mode yet (they run via the live sandbox path);
+  // useCustomSeries already no-ops on the blank liveTicker there.
   const customList = useCustomList()
   const customSlugs = useMemo(
     () => selectedIds.filter(id => id.startsWith('custom:')).map(id => id.slice('custom:'.length)),
     [selectedIds],
   )
   const customSeries = useCustomSeries(liveTicker, range, customSlugs, dataInterval, winStart, winEnd)
+
+  // Lab Platform: resample the dataset's FULL stored bars to the current
+  // display interval (native or coarser), compute indicators over that FULL
+  // resampled history (real warmup for long-lookback averages), then window
+  // both bars and indicators together for display -- same warmup-then-trim
+  // principle as live indicators, just applied to the dataset's own history
+  // instead of a live yfinance fetch.
+  const datasetResampled = useMemo(
+    () => (isDatasetMode ? resampleBars(datasetBars, (dataInterval ?? dataset!.interval) as Interval) : []),
+    [isDatasetMode, datasetBars, dataInterval, dataset],
+  )
+  const [datasetIndicatorsFull, setDatasetIndicatorsFull] =
+    useState<Record<string, { time: string[]; values: (number | null)[] }>>({})
+  useEffect(() => {
+    if (!isDatasetMode || studies.length === 0 || datasetResampled.length === 0) { setDatasetIndicatorsFull({}); return }
+    let cancelled = false
+    computeIndicators(datasetResampled, studies)
+      .then(ind => { if (!cancelled) setDatasetIndicatorsFull(ind) })
+      .catch(() => { if (!cancelled) setDatasetIndicatorsFull({}) })
+    return () => { cancelled = true }
+  }, [isDatasetMode, datasetResampled, studies])
+  const datasetDisplayBars = useMemo(() => {
+    if (!isDatasetMode) return []
+    if (winStart && winEnd) return filterByDateRange(datasetResampled, winStart, winEnd)
+    return windowBars(datasetResampled, range)
+  }, [isDatasetMode, datasetResampled, winStart, winEnd, range])
+  const datasetDisplayIndicators = useMemo(() => {
+    const out: Record<string, { time: string[]; values: (number | null)[] }> = {}
+    if (!isDatasetMode) return out
+    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, datasetDisplayBars)
+    return out
+  }, [isDatasetMode, datasetIndicatorsFull, datasetDisplayBars])
+  const indicators = isDatasetMode ? datasetDisplayIndicators : liveIndicators
 
   // The strategy shown on the chart follows the Navigator selection (a workspace
   // strategy), so it stays in sync with the metrics panel. In dataset mode the
@@ -198,7 +241,7 @@ export function StockChart({
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
   }))
-  const chartData = isDatasetMode ? datasetBars : (isLive ? liveData : data)
+  const chartData = isDatasetMode ? datasetDisplayBars : (isLive ? liveData : data)
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
   const fullLen = chartData.length
@@ -208,7 +251,7 @@ export function StockChart({
   // switching datasets -- and preserves zoom for everything else (indicator/
   // strategy toggles, replay).
   const fitKey = isDatasetMode
-    ? `dataset:${dataset!.id}`
+    ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
     : `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
 
   // (Re)start replay when the window changes (including switching datasets)
@@ -362,9 +405,10 @@ export function StockChart({
                 Replay
               </button>
 
-              {/* Indicator picker — not shown in Lab dataset mode (no live
-                  indicator fetch there; the backtest overlay covers it). */}
-              {!isDatasetMode && (
+              {/* Indicator picker — built-ins work in Lab dataset mode too
+                  (computed from the dataset's own bars); Custom (published)
+                  indicators still need a live ticker, so that section is
+                  hidden there. */}
               <div className="relative">
                 <button
                   onClick={() => setPickerOpen(o => !o)}
@@ -382,7 +426,7 @@ export function StockChart({
                       {OVERLAY_ITEMS.map(pickRow)}
                       <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Oscillators (panes)</div>
                       {OSC_ITEMS.map(pickRow)}
-                      {customList.length > 0 && (
+                      {!isDatasetMode && customList.length > 0 && (
                         <>
                           <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
                           {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
@@ -392,12 +436,12 @@ export function StockChart({
                   </>
                 )}
               </div>
-              )}
 
               {/* Interval picker — shown on every non-live range; intervals the
-                  range doesn't support are rendered greyed-out ("n/a"). Not
-                  shown in Lab dataset mode (the dataset's own interval is fixed). */}
-              {!isDatasetMode && supportedIntervals.length > 0 && (
+                  range doesn't support are rendered greyed-out ("n/a"). In Lab
+                  dataset mode, options are the dataset's own granularity or
+                  coarser (supportedIntervals is already computed that way). */}
+              {supportedIntervals.length > 0 && (
                 <div className="relative">
                   <button
                     onClick={() => setIntervalOpen(o => !o)}
@@ -436,8 +480,8 @@ export function StockChart({
                 </div>
               )}
 
-              {/* Custom date window — not applicable to a fixed stored dataset. */}
-              {!isDatasetMode && (
+              {/* Custom date window — in Lab dataset mode, bounded to the
+                  dataset's own stored start/end (you can't pick outside it). */}
               <div className="relative">
                 <button
                   onClick={() => { if (cwin) { setCwin(null) } else { setCustomOpen(o => !o) } }}
@@ -452,15 +496,22 @@ export function StockChart({
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setCustomOpen(false)} />
                     <div className="absolute left-0 mt-1 z-20 w-64 bg-surface border border-border rounded-md shadow-xl p-2 text-xs lg:left-auto lg:right-0 space-y-2">
-                      <DateRangePicker start={cFrom} end={cTo} onChange={(s, e) => { setCFrom(s); setCTo(e) }} />
+                      <DateRangePicker
+                        start={cFrom} end={cTo} onChange={(s, e) => { setCFrom(s); setCTo(e) }}
+                        minDate={isDatasetMode ? dataset!.start : undefined}
+                        maxDate={isDatasetMode ? dataset!.end : undefined}
+                      />
                       <div className="text-[11px] text-gray-500 tabular-nums">
                         {cFrom && cTo ? `${cFrom} → ${cTo}` : cFrom ? `${cFrom} → …` : 'Pick a start & end date'}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-gray-500">Interval</span>
-                        <select value={cIv} onChange={e => setCIv(e.target.value as Interval)}
-                          className="flex-1 bg-panel border border-border rounded px-1.5 py-1 text-gray-200">
-                          {(['1d', '1h', '1w', '1mo'] as Interval[]).map(iv => <option key={iv} value={iv}>{iv}</option>)}
+                        <select
+                          value={customIntervalOptions.includes(cIv) ? cIv : customIntervalOptions[0]}
+                          onChange={e => setCIv(e.target.value as Interval)}
+                          className="flex-1 bg-panel border border-border rounded px-1.5 py-1 text-gray-200"
+                        >
+                          {customIntervalOptions.map(iv => <option key={iv} value={iv}>{iv}</option>)}
                         </select>
                       </div>
                       <button onClick={applyCustom} disabled={!cFrom || !cTo}
@@ -471,16 +522,15 @@ export function StockChart({
                   </>
                 )}
               </div>
-              )}
             </div>
           )}
-          {/* Range tabs — not applicable in Lab dataset mode (the dataset's own
-              date range is fixed); scroll horizontally on touch, inline on desktop. */}
-          {!isDatasetMode && (
+          {/* Range tabs — in Lab dataset mode these act as a clamped window over
+              the dataset's own stored bars (windowBars/handleRangeChange already
+              cap to what's actually available); scroll horizontally on touch,
+              inline on desktop. */}
           <div className="overflow-x-auto scrollbar-thin -mx-0.5 px-0.5 lg:overflow-visible lg:mx-0 lg:px-0">
             <RangeTabs active={range} onChange={handleRangeChange} />
           </div>
-          )}
         </div>
       </div>
 

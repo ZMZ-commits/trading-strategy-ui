@@ -3,6 +3,7 @@ import { Sidebar, type SidebarView } from './components/Sidebar/Sidebar'
 import { TopPanel } from './components/TopPanel/TopPanel'
 import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
+import { LabPage } from './components/Lab/LabPage'
 import { CodeServerPanel } from './components/IDE/CodeServerPanel'
 import { useIsMobile } from './hooks/useMediaQuery'
 import type { DatasetMeta, BacktestMeta } from './api/datasets'
@@ -51,35 +52,44 @@ export default function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <span className="text-base font-bold text-gray-100">{activeTicker}</span>
-            <span className="ml-auto text-[11px] font-semibold uppercase tracking-widest text-gray-600">Trading</span>
+            <span className="text-base font-bold text-gray-100">{sidebarView === 'lab' ? 'Lab' : activeTicker}</span>
+            <span className="ml-auto text-[11px] font-semibold uppercase tracking-widest text-gray-600">
+              {sidebarView === 'lab' ? 'Lab Platform' : 'Trading'}
+            </span>
           </header>
         )}
-        <TopPanel
-          isMobile={isMobile}
-          activeTicker={activeTicker}
-          recentTickers={recentTickers}
-          onTickerChange={handleTickerChange}
-        />
-        <StockChart
-          isMobile={isMobile}
-          ticker={activeTicker}
-          range={activeRange}
-          onRangeChange={setActiveRange}
-          selectedStrategy={selectedStrategy}
-          onReplayCutoff={setReplayCutoff}
-          dataset={sidebarView === 'lab' ? activeDataset : null}
-          datasetBacktest={sidebarView === 'lab' ? activeBacktest : null}
-        />
-        <BottomPanel
-          isMobile={isMobile}
-          ticker={activeTicker}
-          range={activeRange}
-          selectedStrategy={selectedStrategy}
-          replayCutoff={replayCutoff}
-          dataset={sidebarView === 'lab' ? activeDataset : null}
-          datasetBacktest={sidebarView === 'lab' ? activeBacktest : null}
-        />
+        {sidebarView === 'lab' ? (
+          <LabPage
+            isMobile={isMobile}
+            dataset={activeDataset}
+            backtest={activeBacktest}
+            onReplayCutoff={setReplayCutoff}
+          />
+        ) : (
+          <>
+            <TopPanel
+              isMobile={isMobile}
+              activeTicker={activeTicker}
+              recentTickers={recentTickers}
+              onTickerChange={handleTickerChange}
+            />
+            <StockChart
+              isMobile={isMobile}
+              ticker={activeTicker}
+              range={activeRange}
+              onRangeChange={setActiveRange}
+              selectedStrategy={selectedStrategy}
+              onReplayCutoff={setReplayCutoff}
+            />
+            <BottomPanel
+              isMobile={isMobile}
+              ticker={activeTicker}
+              range={activeRange}
+              selectedStrategy={selectedStrategy}
+              replayCutoff={replayCutoff}
+            />
+          </>
+        )}
       </main>
 
       {/* RIGHT — Navigator */}

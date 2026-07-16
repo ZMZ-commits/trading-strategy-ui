@@ -24,8 +24,9 @@ function Icon({ path }: { path: string }) {
 }
 
 /** Replay transport: a self-contained "liquid glass" pill (dark, frosted,
- *  rounded) placed ABOVE the chart in normal flow -- not an overlay on top of
- *  it, so it can't fight the chart for clicks and is always reachable. */
+ *  rounded) placed BELOW the chart in normal flow -- not an overlay on top of
+ *  it, so it can't fight the chart for clicks. Hidden by default; the parent
+ *  (StockChart) fades/scales it in on hover. */
 export function ReplayTransport({
   playing, onPlayPause, onRestart, index, total, onSeek, speed, onSpeedChange, speeds, currentDate,
 }: Props) {

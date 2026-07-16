@@ -423,29 +423,37 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange, sel
         </div>
       </div>
 
-      {/* Replay transport — a normal row ABOVE the chart (not an overlay on top
-          of it), so it never fights the chart for clicks and stays reachable
-          the whole time replay is on. */}
-      {replayOn && !isLive && (
-        <div className="mb-2 flex-shrink-0">
-          <ReplayTransport
-            playing={playing}
-            onPlayPause={() => setPlaying(p => !p)}
-            onRestart={() => { setReplayIdx(1); setPlaying(true) }}
-            index={revealN}
-            total={fullLen}
-            onSeek={n => { setPlaying(false); setReplayIdx(n) }}
-            speed={speed}
-            onSpeedChange={setSpeed}
-            speeds={REPLAY_SPEEDS}
-            currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
-          />
-        </div>
-      )}
-
       <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
       </div>
+
+      {/* Replay transport — a real row BELOW the chart, never an overlay on top
+          of it, so it can never steal clicks/scroll/drag from the chart's own
+          controls (crosshair, zoom, pan). This strip is always reserved so
+          layout doesn't jump; ReplayTransport itself is the styled glass pill,
+          this wrapper only handles the hover-to-reveal fade/scale. */}
+      {replayOn && !isLive && (
+        <div className="group relative flex-shrink-0 h-9 flex items-center justify-center">
+          <div
+            className="opacity-0 scale-95 pointer-events-none
+                       group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto
+                       transition-all duration-150"
+          >
+            <ReplayTransport
+              playing={playing}
+              onPlayPause={() => setPlaying(p => !p)}
+              onRestart={() => { setReplayIdx(1); setPlaying(true) }}
+              index={revealN}
+              total={fullLen}
+              onSeek={n => { setPlaying(false); setReplayIdx(n) }}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              speeds={REPLAY_SPEEDS}
+              currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

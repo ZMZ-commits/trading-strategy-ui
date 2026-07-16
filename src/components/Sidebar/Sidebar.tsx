@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
-import { LabDashboard } from './LabDashboard'
 import { scaffold, listItems, deleteItem, type WorkspaceItems } from '../../api/workspace'
-import type { DatasetMeta, BacktestMeta } from '../../api/datasets'
 import type { Strategy } from '../../types'
 
 export type SidebarView = 'trading' | 'lab'
@@ -15,16 +13,8 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
   /** Open the left web-IDE panel (called after scaffolding so the new folder shows). */
   onOpenIde?: () => void
-  /** Seeds the Lab Platform's dataset-creation ticker field. */
-  ticker: string
   sidebarView: SidebarView
   onSidebarViewChange: (v: SidebarView) => void
-  /** The dataset/backtest currently driving the main chart + bottom panel in
-   *  Lab mode (lifted to App so it can switch those over). */
-  activeDataset: DatasetMeta | null
-  onSelectDataset: (d: DatasetMeta | null) => void
-  activeBacktest: BacktestMeta | null
-  onSelectBacktest: (b: BacktestMeta | null) => void
 }
 
 // Built-in indicators, split by how they render: overlays draw on the price
@@ -146,8 +136,7 @@ function ItemRow({ slug, selected, onClick, onContextMenu, onDelete }: {
 }
 
 export function Sidebar({
-  isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde, ticker,
-  sidebarView, onSidebarViewChange, activeDataset, onSelectDataset, activeBacktest, onSelectBacktest,
+  isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde, sidebarView, onSidebarViewChange,
 }: Props) {
   const [items, setItems] = useState<WorkspaceItems>({ strategies: [], indicators: [] })
   const [indicatorQuery, setIndicatorQuery] = useState('')
@@ -235,9 +224,12 @@ export function Sidebar({
   const filteredStrategies = items.strategies.filter(s => s.toLowerCase().includes(strategyQuery.toLowerCase()))
 
   // Shared header: Trading Platform / Lab Platform tab switcher, plus the
-  // mobile close (X). Rendered once, above whichever view is active.
+  // mobile close (X). Rendered once, above whichever view is active. On
+  // desktop the pinned collapse arrow sits absolutely at top-right of the
+  // whole aside, so the header gets extra right padding to clear it (it was
+  // overlapping the Lab tab otherwise).
   const header = (
-    <div className="flex items-center gap-1 p-2 border-b border-border flex-shrink-0">
+    <div className={`flex items-center gap-1 p-2 border-b border-border flex-shrink-0 ${isMobile ? '' : 'pr-8'}`}>
       <button
         onClick={() => openView('trading')}
         title="Trading Platform"
@@ -252,7 +244,7 @@ export function Sidebar({
         onClick={() => openView('lab')}
         title="Lab Platform"
         className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-semibold truncate transition-colors ${
-          sidebarView === 'lab' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+          sidebarView === 'lab' ? 'bg-violet-600/20 text-violet-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
         }`}
       >
         <LabIcon className="w-3.5 h-3.5 flex-shrink-0" />
@@ -392,15 +384,7 @@ export function Sidebar({
           }`}
         >
           {header}
-          {sidebarView === 'trading' ? tradingBody : (
-            <LabDashboard
-              defaultTicker={ticker}
-              activeDatasetId={activeDataset?.id ?? null}
-              onSelectDataset={onSelectDataset}
-              activeBacktestId={activeBacktest?.id ?? null}
-              onSelectBacktest={onSelectBacktest}
-            />
-          )}
+          {sidebarView === 'trading' ? tradingBody : <LabPlaceholder />}
         </aside>
       </>
     )
@@ -442,7 +426,7 @@ export function Sidebar({
             onClick={() => openView('lab')}
             title="Lab Platform"
             className={`w-full flex items-center justify-center py-2 rounded transition-colors ${
-              sidebarView === 'lab' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+              sidebarView === 'lab' ? 'bg-violet-600/20 text-violet-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
             }`}
           >
             <LabIcon className="w-4 h-4" />
@@ -453,17 +437,22 @@ export function Sidebar({
       {isOpen && (
         <>
           {header}
-          {sidebarView === 'trading' ? tradingBody : (
-            <LabDashboard
-              defaultTicker={ticker}
-              activeDatasetId={activeDataset?.id ?? null}
-              onSelectDataset={onSelectDataset}
-              activeBacktestId={activeBacktest?.id ?? null}
-              onSelectBacktest={onSelectBacktest}
-            />
-          )}
+          {sidebarView === 'trading' ? tradingBody : <LabPlaceholder />}
         </>
       )}
     </aside>
+  )
+}
+
+// Dataset creation/browsing and strategy runs live in the Lab Platform page's
+// own top expansion now (not the Navigator -- too cramped for "a lot of
+// datasets"), so there's nothing left to show here beyond the tab switcher.
+function LabPlaceholder() {
+  return (
+    <div className="flex-1 flex items-center justify-center p-4">
+      <p className="text-[11px] text-gray-600 text-center leading-relaxed">
+        Create and browse datasets, and run strategies against them, from the top panel on the Lab page.
+      </p>
+    </div>
   )
 }

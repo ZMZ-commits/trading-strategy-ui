@@ -61,8 +61,11 @@ export default function App() {
         {sidebarView === 'lab' ? (
           <LabPage
             isMobile={isMobile}
+            ticker={activeTicker}
             dataset={activeDataset}
+            onSelectDataset={setActiveDataset}
             backtest={activeBacktest}
+            onSelectBacktest={setActiveBacktest}
             onReplayCutoff={setReplayCutoff}
           />
         ) : (
@@ -100,13 +103,8 @@ export default function App() {
         selectedStrategy={selectedStrategy}
         onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
         onOpenIde={() => setIdeOpen(true)}
-        ticker={activeTicker}
         sidebarView={sidebarView}
         onSidebarViewChange={setSidebarView}
-        activeDataset={activeDataset}
-        onSelectDataset={setActiveDataset}
-        activeBacktest={activeBacktest}
-        onSelectBacktest={setActiveBacktest}
       />
     </div>
   )

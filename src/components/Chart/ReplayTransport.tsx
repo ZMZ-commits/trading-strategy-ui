@@ -33,7 +33,7 @@ export function ReplayTransport({
   const pct = total > 1 ? ((index - 1) / (total - 1)) * 100 : 0
 
   return (
-    <div className="flex items-center gap-3 select-none rounded-full border border-white/10 bg-black/40 backdrop-blur-xl px-3 py-2 shadow-lg shadow-black/30">
+    <div className="w-full flex items-center gap-3 select-none rounded-full border border-white/10 bg-black/40 backdrop-blur-xl px-4 py-2 shadow-lg shadow-black/30">
       {/* Transport buttons */}
       <div className="flex items-center gap-0.5 flex-shrink-0">
         <button
@@ -47,12 +47,12 @@ export function ReplayTransport({
       </div>
 
       {/* Seekable progress bar */}
-      <div className="relative flex-1 h-4 flex items-center">
-        <div className="h-1 w-full rounded-full bg-white/15 overflow-hidden">
+      <div className="relative flex-1 min-w-24 h-5 flex items-center">
+        <div className="h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
           <div className="h-full bg-blue-500 rounded-full transition-[width] duration-100" style={{ width: `${pct}%` }} />
         </div>
         <div
-          className="absolute h-3 w-3 rounded-full bg-blue-400 shadow -translate-x-1/2 pointer-events-none"
+          className="absolute h-3.5 w-3.5 rounded-full bg-blue-400 shadow -translate-x-1/2 pointer-events-none"
           style={{ left: `${pct}%` }}
         />
         <input

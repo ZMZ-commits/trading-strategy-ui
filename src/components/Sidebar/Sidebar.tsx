@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
 import { LabDashboard } from './LabDashboard'
 import { scaffold, listItems, deleteItem, type WorkspaceItems } from '../../api/workspace'
-import type { Strategy, Range } from '../../types'
+import type { DatasetMeta, BacktestMeta } from '../../api/datasets'
+import type { Strategy } from '../../types'
+
+export type SidebarView = 'trading' | 'lab'
 
 interface Props {
   isMobile: boolean
@@ -12,12 +15,17 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
   /** Open the left web-IDE panel (called after scaffolding so the new folder shows). */
   onOpenIde?: () => void
-  /** Seeds the Lab Platform view's default ticker/range. */
+  /** Seeds the Lab Platform's dataset-creation ticker field. */
   ticker: string
-  range: Range
+  sidebarView: SidebarView
+  onSidebarViewChange: (v: SidebarView) => void
+  /** The dataset/backtest currently driving the main chart + bottom panel in
+   *  Lab mode (lifted to App so it can switch those over). */
+  activeDataset: DatasetMeta | null
+  onSelectDataset: (d: DatasetMeta | null) => void
+  activeBacktest: BacktestMeta | null
+  onSelectBacktest: (b: BacktestMeta | null) => void
 }
-
-type SidebarView = 'trading' | 'lab'
 
 // Built-in indicators, split by how they render: overlays draw on the price
 // chart; oscillators draw in their own pane.
@@ -137,20 +145,22 @@ function ItemRow({ slug, selected, onClick, onContextMenu, onDelete }: {
   )
 }
 
-export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde, ticker, range }: Props) {
+export function Sidebar({
+  isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde, ticker,
+  sidebarView, onSidebarViewChange, activeDataset, onSelectDataset, activeBacktest, onSelectBacktest,
+}: Props) {
   const [items, setItems] = useState<WorkspaceItems>({ strategies: [], indicators: [] })
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
   const [viewQuery, setViewQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
-  const [sidebarView, setSidebarView] = useState<SidebarView>('trading')
 
   // Switch view, and expand the panel if it's currently collapsed.
   const openView = useCallback((v: SidebarView) => {
-    setSidebarView(v)
+    onSidebarViewChange(v)
     if (!isOpen) onToggle()
-  }, [isOpen, onToggle])
+  }, [isOpen, onToggle, onSidebarViewChange])
 
   // Reflect the IDE workspace folders, and keep it live (poll so deletions/adds
   // done inside VS Code show up here too).
@@ -382,7 +392,15 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           }`}
         >
           {header}
-          {sidebarView === 'trading' ? tradingBody : <LabDashboard ticker={ticker} range={range} />}
+          {sidebarView === 'trading' ? tradingBody : (
+            <LabDashboard
+              defaultTicker={ticker}
+              activeDatasetId={activeDataset?.id ?? null}
+              onSelectDataset={onSelectDataset}
+              activeBacktestId={activeBacktest?.id ?? null}
+              onSelectBacktest={onSelectBacktest}
+            />
+          )}
         </aside>
       </>
     )
@@ -435,7 +453,15 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
       {isOpen && (
         <>
           {header}
-          {sidebarView === 'trading' ? tradingBody : <LabDashboard ticker={ticker} range={range} />}
+          {sidebarView === 'trading' ? tradingBody : (
+            <LabDashboard
+              defaultTicker={ticker}
+              activeDatasetId={activeDataset?.id ?? null}
+              onSelectDataset={onSelectDataset}
+              activeBacktestId={activeBacktest?.id ?? null}
+              onSelectBacktest={onSelectBacktest}
+            />
+          )}
         </>
       )}
     </aside>

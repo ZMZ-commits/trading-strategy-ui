@@ -7,6 +7,7 @@ export type DatasetStatus = 'pending' | 'running' | 'ready' | 'error' | 'cancell
 
 export interface DatasetMeta {
   id: string
+  name: string
   ticker: string
   start: string
   end: string
@@ -50,10 +51,10 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export const createDataset = (ticker: string, start: string, end: string, interval: string) =>
+export const createDataset = (ticker: string, start: string, end: string, interval: string, name?: string) =>
   req<DatasetMeta>('/datasets', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticker, start, end, interval }),
+    body: JSON.stringify({ ticker, start, end, interval, name: name || undefined }),
   })
 
 export const listDatasets = () => req<{ datasets: DatasetMeta[] }>('/datasets').then(d => d.datasets)
@@ -74,6 +75,20 @@ export const getBacktest = (datasetId: string, backtestId: string) =>
   req<BacktestMeta>(`/datasets/${datasetId}/backtests/${backtestId}`)
 export const cancelBacktest = (datasetId: string, backtestId: string) =>
   req<BacktestMeta>(`/datasets/${datasetId}/backtests/${backtestId}/cancel`, { method: 'POST' })
+
+/** Compute indicators over caller-supplied bars (e.g. a Lab dataset's stored/
+ *  resampled bars) instead of a live fetch -- same math as the live indicators
+ *  endpoint. Pass the FULL series you want indicators computed over (not a
+ *  display-trimmed slice), so long-lookback averages have real history;
+ *  trim the result for display yourself afterward. */
+export const computeIndicators = (bars: OHLCBar[], studies: string[]) =>
+  req<{ indicators: Record<string, { kind?: string; time: string[]; values: (number | null)[] }> }>(
+    '/indicators/compute',
+    {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bars, studies }),
+    },
+  ).then(d => d.indicators)
 
 /** Convert a completed backtest's raw sandbox result into the same shape the
  *  live strategy chart hook produces, so LWChart can render it identically

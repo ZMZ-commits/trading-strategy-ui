@@ -141,7 +141,6 @@ export function Sidebar({
   const [items, setItems] = useState<WorkspaceItems>({ strategies: [], indicators: [] })
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
-  const [viewQuery, setViewQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
 
@@ -335,14 +334,6 @@ export function Sidebar({
               ))}
             </ul>
           )}
-        </Section>
-
-        {/* ── Saved Dashboard Views ── */}
-        <Section title="Saved Dashboard Views" count={0} onAdd={() => showToast('Coming soon — save dashboard views')} addTitle="Save current view">
-          <div className="px-2 pb-2">
-            <StrategySearch value={viewQuery} onChange={setViewQuery} placeholder="Search views..." />
-          </div>
-          <p className="px-3 py-2 text-xs text-gray-600">Coming soon</p>
         </Section>
       </div>
 

@@ -1,11 +1,19 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
+import { ReplayTransport } from './ReplayTransport'
+import { DateRangePicker } from './DateRangePicker'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
-import type { Range, Interval, OHLCBar } from '../../types'
+import { useStrategyChart } from '../../hooks/useStrategyChart'
+import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta } from '../../api/datasets'
+import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
+import type { StrategyChartData } from '../../api/strategyChart'
+import type { Range, Interval, OHLCBar, Strategy } from '../../types'
+
+const EMPTY_STRATEGY_DATA: StrategyChartData = { lines: [], signals: [], logs: [], requires: [], pnl: 0 }
 
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
 
@@ -30,6 +38,23 @@ interface Props {
   ticker: string
   range: Range
   onRangeChange: (r: Range) => void
+  /** Workspace strategy selected in the Navigator — rendered on the chart. */
+  selectedStrategy?: Strategy | null
+  /** Reports the last-revealed bar timestamp during replay (null when off) so
+   *  the metrics panel can show trades live. */
+  onReplayCutoff?: (ts: string | null) => void
+  /** Lab Platform: when set, the chart shows this stored dataset's bars
+   *  instead of live ticker data, windowed by the same range/custom-window
+   *  controls as live mode (clamped to what the dataset actually has). */
+  dataset?: DatasetMeta | null
+  /** A completed backtest run against `dataset`, overlaid the same way a live
+   *  strategy is (dashed line + Buy/Sell markers). */
+  datasetBacktest?: BacktestMeta | null
+  /** Lab Platform: reports the currently displayed window's [start,end]
+   *  bounds (native-granularity dataset timestamps, not resample buckets) so
+   *  sibling panels -- the raw row table, the backtest transactions list --
+   *  can clamp to the exact same cutoff as the chart. Null/null outside dataset mode. */
+  onWindowChange?: (start: string | null, end: string | null) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -48,9 +73,46 @@ const OSC_ITEMS = [
 ]
 const ALL_ITEMS = [...OVERLAY_ITEMS, ...OSC_ITEMS]
 
-export function StockChart({ isMobile = false, ticker, range, onRangeChange }: Props) {
-  const isLive = range === 'NOW'
-  const supportedIntervals = RANGE_INTERVALS[range] ?? []
+const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8]
+
+// Slice a {time, values} series to the first n points (for replay reveal).
+function sliceSeries<T extends { time: string[]; values: (number | null)[] }>(s: T, n: number): T {
+  return { ...s, time: s.time.slice(0, n), values: s.values.slice(0, n) }
+}
+function sliceIndicators<T extends Record<string, { time: string[]; values: (number | null)[] }>>(ind: T, n: number): T {
+  const out = {} as T
+  for (const k of Object.keys(ind) as (keyof T)[]) out[k] = sliceSeries(ind[k], n)
+  return out
+}
+
+export function StockChart({
+  isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
+  onWindowChange,
+}: Props) {
+  const isDatasetMode = !!dataset
+  const isLive = !isDatasetMode && range === 'NOW'
+
+  // Lab Platform: load the stored dataset's bars once when it's selected.
+  // Live-data hooks below are fed an empty ticker in this mode so they skip
+  // fetching (they already no-op on falsy ticker) -- the dataset's bars stand
+  // in for chartData everywhere else (replay, header, LWChart).
+  const [datasetBars, setDatasetBars] = useState<OHLCBar[]>([])
+  const [datasetLoading, setDatasetLoading] = useState(false)
+  const [datasetError, setDatasetError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!dataset) { setDatasetBars([]); return }
+    let cancelled = false
+    setDatasetLoading(true); setDatasetError(null)
+    getDatasetBars(dataset.id)
+      .then(bars => { if (!cancelled) setDatasetBars(bars) })
+      .catch(e => { if (!cancelled) setDatasetError(e instanceof Error ? e.message : 'Failed to load dataset') })
+      .finally(() => { if (!cancelled) setDatasetLoading(false) })
+    return () => { cancelled = true }
+  }, [dataset])
+  const liveTicker = isDatasetMode ? '' : ticker
+  // In dataset mode you can only view at the dataset's own stored granularity
+  // or something coarser (aggregated up) -- there's no live-range concept.
+  const supportedIntervals = isDatasetMode ? availableIntervals(dataset!.interval) : (RANGE_INTERVALS[range] ?? [])
   const [intervalOverride, setIntervalOverride] = useState<Interval | undefined>(undefined)
   const [intervalOpen, setIntervalOpen] = useState(false)
 
@@ -59,13 +121,36 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     ? intervalOverride
     : undefined
 
+  // Custom date window: when set, data is fetched for [start,end] at cwin.interval
+  // instead of the preset range.
+  const [cwin, setCwin] = useState<{ start: string; end: string; interval: Interval } | null>(null)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [cFrom, setCFrom] = useState('')
+  const [cTo, setCTo] = useState('')
+  const [cIv, setCIv] = useState<Interval>('1d')
+  const winStart = cwin?.start
+  const winEnd = cwin?.end
+  const dataInterval = cwin ? cwin.interval : effectiveInterval
+  // Custom window's own interval choices: in dataset mode, only the dataset's
+  // native interval or coarser is actually viewable (mirrors supportedIntervals).
+  const customIntervalOptions: Interval[] = isDatasetMode
+    ? supportedIntervals
+    : (['1d', '1h', '1w', '1mo'] as Interval[])
+
+  const applyCustom = () => {
+    if (!cFrom || !cTo) return
+    setCwin({ start: cFrom, end: cTo, interval: cIv })
+    setCustomOpen(false)
+  }
+
   const handleRangeChange = (r: Range) => {
     setIntervalOverride(undefined)
+    setCwin(null)
     onRangeChange(r)
   }
 
-  const { data, loading, error } = useStockData(ticker, range, effectiveInterval)
-  const { ticks, connected } = useLiveTicks(ticker, isLive)
+  const { data, loading, error } = useStockData(liveTicker, range, dataInterval, winStart, winEnd)
+  const { ticks, connected } = useLiveTicks(liveTicker, isLive && !isDatasetMode)
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
   const [showVolume, setShowVolume] = useState(true)
@@ -86,23 +171,153 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
     [selectedIds],
   )
 
-  const indicators = useIndicators(ticker, range, studies, effectiveInterval)
+  const liveIndicators = useIndicators(liveTicker, range, studies, dataInterval, winStart, winEnd)
 
   // Custom (user-published) indicators: picker entries use id `custom:<slug>`.
+  // Not offered in dataset mode yet (they run via the live sandbox path);
+  // useCustomSeries already no-ops on the blank liveTicker there.
   const customList = useCustomList()
   const customSlugs = useMemo(
     () => selectedIds.filter(id => id.startsWith('custom:')).map(id => id.slice('custom:'.length)),
     [selectedIds],
   )
-  const customSeries = useCustomSeries(ticker, range, customSlugs, effectiveInterval)
+  const customSeries = useCustomSeries(liveTicker, range, customSlugs, dataInterval, winStart, winEnd)
+
+  // Lab Platform: resample the dataset's FULL stored bars to the current
+  // display interval (native or coarser), compute indicators over that FULL
+  // resampled history (real warmup for long-lookback averages), then window
+  // both bars and indicators together for display -- same warmup-then-trim
+  // principle as live indicators, just applied to the dataset's own history
+  // instead of a live yfinance fetch.
+  const datasetResampled = useMemo(
+    () => (isDatasetMode ? resampleBars(datasetBars, (dataInterval ?? dataset!.interval) as Interval) : []),
+    [isDatasetMode, datasetBars, dataInterval, dataset],
+  )
+  const [datasetIndicatorsFull, setDatasetIndicatorsFull] =
+    useState<Record<string, { time: string[]; values: (number | null)[] }>>({})
+  useEffect(() => {
+    if (!isDatasetMode || studies.length === 0 || datasetResampled.length === 0) { setDatasetIndicatorsFull({}); return }
+    let cancelled = false
+    computeIndicators(datasetResampled, studies)
+      .then(ind => { if (!cancelled) setDatasetIndicatorsFull(ind) })
+      .catch(() => { if (!cancelled) setDatasetIndicatorsFull({}) })
+    return () => { cancelled = true }
+  }, [isDatasetMode, datasetResampled, studies])
+  const datasetDisplayBars = useMemo(() => {
+    if (!isDatasetMode) return []
+    if (winStart && winEnd) return filterByDateRange(datasetResampled, winStart, winEnd)
+    return windowBars(datasetResampled, range)
+  }, [isDatasetMode, datasetResampled, winStart, winEnd, range])
+  // Same range/custom-window cutoff, applied directly to the RAW (native-
+  // granularity) dataset bars rather than the display-resampled ones -- so
+  // the reported bounds line up with actual trade/row timestamps even when
+  // the chart itself is showing a coarser aggregated interval.
+  const datasetRawWindow = useMemo(() => {
+    if (!isDatasetMode) return []
+    if (winStart && winEnd) return filterByDateRange(datasetBars, winStart, winEnd)
+    return windowBars(datasetBars, range)
+  }, [isDatasetMode, datasetBars, winStart, winEnd, range])
+  useEffect(() => {
+    if (!isDatasetMode) { onWindowChange?.(null, null); return }
+    onWindowChange?.(
+      datasetRawWindow[0]?.timestamp ?? null,
+      datasetRawWindow[datasetRawWindow.length - 1]?.timestamp ?? null,
+    )
+  }, [isDatasetMode, datasetRawWindow, onWindowChange])
+  const datasetDisplayIndicators = useMemo(() => {
+    const out: Record<string, { time: string[]; values: (number | null)[] }> = {}
+    if (!isDatasetMode) return out
+    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, datasetDisplayBars)
+    return out
+  }, [isDatasetMode, datasetIndicatorsFull, datasetDisplayBars])
+  const indicators = isDatasetMode ? datasetDisplayIndicators : liveIndicators
+
+  // The strategy shown on the chart follows the Navigator selection (a workspace
+  // strategy), so it stays in sync with the metrics panel. In dataset mode the
+  // overlay instead comes from the selected backtest run (converted below).
+  const strategySlug = selectedStrategy?.source === 'workspace' ? selectedStrategy.slug : null
+  const liveStrategyData = useStrategyChart(liveTicker, range, strategySlug, dataInterval, winStart, winEnd)
+  const strategyData = isDatasetMode
+    ? (datasetBacktest ? backtestToChartData(datasetBacktest) : EMPTY_STRATEGY_DATA)
+    : liveStrategyData
+
+  // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
+  // on automatically when it's selected (like a mod bringing its dependencies).
+  const reqKey = strategyData.requires.join(',')
+  useEffect(() => {
+    if (!reqKey) return
+    const req = reqKey.split(',')
+    setSelectedIds(prev => {
+      const add = req.filter(r => r && !prev.includes(r))
+      return add.length ? [...prev, ...add] : prev
+    })
+  }, [reqKey])
+
+  // ── Replay: reveal bars from the left, with play/pause + speed. ──
+  const [replayOn, setReplayOn] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [replayIdx, setReplayIdx] = useState(1)
+  const [speed, setSpeed] = useState(2)
 
   // Live ticks → single-price bars; rendered as a line.
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
   }))
-  const chartData = isLive ? liveData : data
+  const chartData = isDatasetMode ? datasetDisplayBars : (isLive ? liveData : data)
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
+  const fullLen = chartData.length
+
+  // Identifies the actual viewing window; the chart re-fits (end-to-end) only
+  // when this changes -- switching ticker/range/interval/custom dates, or
+  // switching datasets -- and preserves zoom for everything else (indicator/
+  // strategy toggles, replay).
+  const fitKey = isDatasetMode
+    ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
+    : `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
+
+  // (Re)start replay when the window changes (including switching datasets)
+  // or replay is toggled on.
+  useEffect(() => {
+    if (replayOn && !isLive) { setReplayIdx(1); setPlaying(true) }
+    else setPlaying(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayOn, ticker, range, effectiveInterval, dataset?.id])
+
+  // Advance the playhead at the chosen speed.
+  useEffect(() => {
+    if (!replayOn || !playing || isLive) return
+    const id = window.setInterval(() => {
+      setReplayIdx(i => (i >= fullLen ? i : i + 1))
+    }, Math.max(30, 500 / speed))
+    return () => window.clearInterval(id)
+  }, [replayOn, playing, speed, fullLen, isLive])
+
+  // Stop at the end.
+  useEffect(() => {
+    if (playing && replayIdx >= fullLen && fullLen > 0) setPlaying(false)
+  }, [playing, replayIdx, fullLen])
+
+  const revealN = replayOn && !isLive ? Math.min(replayIdx, fullLen) : fullLen
+  const replaySlicing = replayOn && !isLive && revealN < fullLen
+  const cutoffMs = replaySlicing && chartData[revealN - 1]
+    ? new Date(chartData[revealN - 1].timestamp).getTime()
+    : Infinity
+  const displayData = replaySlicing ? chartData.slice(0, revealN) : chartData
+  const displayIndicators = replaySlicing ? sliceIndicators(indicators, revealN) : indicators
+  const displayCustom = replaySlicing ? customSeries.map(s => sliceSeries(s, revealN)) : customSeries
+  const displayStrategy = useMemo(() => {
+    if (!replaySlicing || !strategyData) return strategyData
+    return {
+      ...strategyData,
+      lines: strategyData.lines.map(ln => sliceSeries(ln, revealN)),
+      signals: strategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
+    }
+  }, [replaySlicing, revealN, cutoffMs, strategyData])
+
+  // Report the replay playhead time so the metrics panel can show trades live.
+  const replayCutoffTs = replaySlicing && displayData.length ? displayData[displayData.length - 1].timestamp : null
+  useEffect(() => { onReplayCutoff?.(replayCutoffTs) }, [replayCutoffTs, onReplayCutoff])
 
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
@@ -116,15 +331,21 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   )
 
   const body = (() => {
+    if (isDatasetMode) {
+      if (datasetLoading) return status('Loading dataset…')
+      if (datasetError) return status(datasetError, 'error')
+      if (chartData.length === 0) return status('Dataset has no bars')
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={{}} oscillators={[]} strategy={displayStrategy} fitKey={fitKey} />
+    }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
-      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} />
+      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} />
     }
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={chartData} type={effectiveType} showVolume={showVolume} indicators={indicators} oscillators={oscillators} custom={customSeries} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -156,13 +377,18 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
   }
 
   return (
-    <div className={`flex flex-col p-2 lg:p-4 bg-panel border-b border-border ${isMobile ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
+    <div className={`flex flex-col p-2 lg:p-4 bg-surface border-b border-border ${isMobile ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
       <div className="flex flex-col gap-2 mb-2 lg:flex-row lg:items-center lg:justify-between lg:gap-2 lg:mb-3">
-        {/* Ticker + price */}
+        {/* Ticker + price (or dataset identity, in Lab mode) */}
         <div className="flex items-center gap-3">
-          <span className="text-xl font-bold text-gray-100">{ticker}</span>
+          <span className="text-xl font-bold text-gray-100">{isDatasetMode ? dataset!.ticker : ticker}</span>
           {latest && <span className="text-lg text-gray-300">${latest.close.toFixed(2)}</span>}
-          {isLive && (
+          {isDatasetMode ? (
+            <span className="text-xs text-gray-500">
+              {dataset!.start} → {dataset!.end} · {dataset!.interval}
+              {datasetBacktest && <span className="text-blue-400 ml-2">· {datasetBacktest.strategy_slug}</span>}
+            </span>
+          ) : isLive && (
             <span className="flex items-center gap-1.5 text-xs font-medium">
               <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
               <span className={connected ? 'text-green-400' : 'text-gray-500'}>{connected ? 'LIVE' : 'connecting'}</span>
@@ -188,7 +414,23 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                 Vol
               </button>
 
-              {/* Indicator picker */}
+              <button
+                onClick={() => setReplayOn(v => !v)}
+                title={replayOn ? (playing ? 'Playing — click to exit replay' : 'Paused — click to exit replay') : 'Bar replay'}
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                  replayOn ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
+                }`}
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d={replayOn && playing ? 'M6 5h3.5v14H6zm8.5 0H18v14h-3.5z' : 'M8 5v14l11-7z'} />
+                </svg>
+                Replay
+              </button>
+
+              {/* Indicator picker — built-ins work in Lab dataset mode too
+                  (computed from the dataset's own bars); Custom (published)
+                  indicators still need a live ticker, so that section is
+                  hidden there. */}
               <div className="relative">
                 <button
                   onClick={() => setPickerOpen(o => !o)}
@@ -206,7 +448,7 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                       {OVERLAY_ITEMS.map(pickRow)}
                       <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Oscillators (panes)</div>
                       {OSC_ITEMS.map(pickRow)}
-                      {customList.length > 0 && (
+                      {!isDatasetMode && customList.length > 0 && (
                         <>
                           <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
                           {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
@@ -218,7 +460,9 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
               </div>
 
               {/* Interval picker — shown on every non-live range; intervals the
-                  range doesn't support are rendered greyed-out ("n/a"). */}
+                  range doesn't support are rendered greyed-out ("n/a"). In Lab
+                  dataset mode, options are the dataset's own granularity or
+                  coarser (supportedIntervals is already computed that way). */}
               {supportedIntervals.length > 0 && (
                 <div className="relative">
                   <button
@@ -257,16 +501,92 @@ export function StockChart({ isMobile = false, ticker, range, onRangeChange }: P
                   )}
                 </div>
               )}
+
+              {/* Custom date window — in Lab dataset mode, bounded to the
+                  dataset's own stored start/end (you can't pick outside it). */}
+              <div className="relative">
+                <button
+                  onClick={() => { if (cwin) { setCwin(null) } else { setCustomOpen(o => !o) } }}
+                  title={cwin ? 'Clear custom window' : 'Custom date range'}
+                  className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors whitespace-nowrap ${
+                    cwin ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700 active:bg-gray-700'
+                  }`}
+                >
+                  {cwin ? `${cwin.start} → ${cwin.end} ✕` : 'Custom ▾'}
+                </button>
+                {customOpen && !cwin && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setCustomOpen(false)} />
+                    <div className="absolute left-0 mt-1 z-20 w-64 bg-surface border border-border rounded-md shadow-xl p-2 text-xs lg:left-auto lg:right-0 space-y-2">
+                      <DateRangePicker
+                        start={cFrom} end={cTo} onChange={(s, e) => { setCFrom(s); setCTo(e) }}
+                        minDate={isDatasetMode ? dataset!.start : undefined}
+                        maxDate={isDatasetMode ? dataset!.end : undefined}
+                      />
+                      <div className="text-[11px] text-gray-500 tabular-nums">
+                        {cFrom && cTo ? `${cFrom} → ${cTo}` : cFrom ? `${cFrom} → …` : 'Pick a start & end date'}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Interval</span>
+                        <select
+                          value={customIntervalOptions.includes(cIv) ? cIv : customIntervalOptions[0]}
+                          onChange={e => setCIv(e.target.value as Interval)}
+                          className="flex-1 bg-panel border border-border rounded px-1.5 py-1 text-gray-200"
+                        >
+                          {customIntervalOptions.map(iv => <option key={iv} value={iv}>{iv}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={applyCustom} disabled={!cFrom || !cTo}
+                        className="w-full py-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium">
+                        Apply
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
-          {/* Range tabs scroll horizontally on touch; inline on desktop */}
+          {/* Range tabs — in Lab dataset mode these act as a clamped window over
+              the dataset's own stored bars (windowBars/handleRangeChange already
+              cap to what's actually available); scroll horizontally on touch,
+              inline on desktop. */}
           <div className="overflow-x-auto scrollbar-thin -mx-0.5 px-0.5 lg:overflow-visible lg:mx-0 lg:px-0">
             <RangeTabs active={range} onChange={handleRangeChange} />
           </div>
         </div>
       </div>
 
-      <div className={isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}>{body}</div>
+      <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
+        {body}
+      </div>
+
+      {/* Replay transport — a real row BELOW the chart, never an overlay on top
+          of it, so it can never steal clicks/scroll/drag from the chart's own
+          controls (crosshair, zoom, pan). This strip is always reserved so
+          layout doesn't jump; ReplayTransport itself is the styled glass pill,
+          this wrapper only handles the hover-to-reveal fade/scale. */}
+      {replayOn && !isLive && (
+        <div className="group relative flex-shrink-0 h-9 flex items-center justify-center">
+          <div
+            className="w-full max-w-2xl opacity-0 scale-95 pointer-events-none
+                       group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto
+                       transition-all duration-150"
+          >
+            <ReplayTransport
+              playing={playing}
+              onPlayPause={() => setPlaying(p => !p)}
+              onRestart={() => { setReplayIdx(1); setPlaying(true) }}
+              index={revealN}
+              total={fullLen}
+              onSeek={n => { setPlaying(false); setReplayIdx(n) }}
+              speed={speed}
+              onSpeedChange={setSpeed}
+              speeds={REPLAY_SPEEDS}
+              currentDate={displayData.length ? new Date(displayData[displayData.length - 1].timestamp).toLocaleDateString() : undefined}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

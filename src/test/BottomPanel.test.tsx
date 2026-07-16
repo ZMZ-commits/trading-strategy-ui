@@ -11,12 +11,12 @@ vi.mocked(stocksApi.getSnapshot).mockResolvedValue({
 
 describe('BottomPanel', () => {
   it('renders drag handle', () => {
-    render(<BottomPanel ticker="AAPL" selectedStrategy={null} />)
+    render(<BottomPanel ticker="AAPL" range="1M" selectedStrategy={null} />)
     expect(screen.getByTitle('Drag to resize')).toBeInTheDocument()
   })
 
   it('shows placeholder when no strategy selected', () => {
-    render(<BottomPanel ticker="AAPL" selectedStrategy={null} />)
+    render(<BottomPanel ticker="AAPL" range="1M" selectedStrategy={null} />)
     expect(screen.getByText(/select a strategy/i)).toBeInTheDocument()
   })
 })

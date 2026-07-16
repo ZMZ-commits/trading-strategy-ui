@@ -8,6 +8,8 @@ import {
 import type { OHLCBar } from '../../types'
 import type { Indicators } from '../../hooks/useIndicators'
 import type { CustomSeries } from '../../api/custom'
+import type { StrategyChartData } from '../../api/strategyChart'
+import { VertLinesPrimitive, type VertMarker } from './vertLinePrimitive'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -18,6 +20,11 @@ interface Props {
   indicators: Indicators
   oscillators: string[]
   custom?: CustomSeries[]
+  strategy?: StrategyChartData
+  /** Identifies the viewing window (ticker+range+interval+custom dates). The
+   *  chart re-fits (shows end-to-end) whenever this changes; it otherwise
+   *  preserves the user's zoom/pan (e.g. toggling an indicator or strategy). */
+  fitKey: string
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -58,7 +65,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [] }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
@@ -235,6 +242,37 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
+    // Strategy: dashed trailing line(s) on the price pane + dotted Buy/Sell
+    // vertical markers (Buy = red, Sell = green).
+    if (strategy) {
+      const STRAT_COLORS = ['#eab308', '#22d3ee', '#f472b6', '#a78bfa', '#4ade80']
+      let si = 0
+      for (const ln of strategy.lines) {
+        const pts: { time: UTCTimestamp; value: number }[] = []
+        for (let i = 0; i < ln.time.length; i++) {
+          const v = ln.values[i]
+          if (v != null) pts.push({ time: toTime(ln.time[i]), value: v })
+        }
+        if (!pts.length) continue
+        const color = STRAT_COLORS[si % STRAT_COLORS.length]; si++
+        const s = add(LineSeries, {
+          color, lineWidth: 2, lineStyle: LineStyle.Dashed,
+          priceLineVisible: false, lastValueVisible: false,
+        })
+        s.setData(pts)
+        labeled.current.push({ s, label: ln.name, color })
+      }
+      if (strategy.signals.length && priceRef.current) {
+        const markers: VertMarker[] = strategy.signals.map(sig => ({
+          time: toTime(sig.time),
+          color: sig.type === 'buy' ? '#ef4444' : '#22c55e',
+          label: sig.type === 'buy' ? 'Buy' : 'Sell',
+        }))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(markers)) } catch { /* noop */ }
+      }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -244,12 +282,15 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     } catch { /* noop */ }
 
-    // Refit only when the data window changed (preserve zoom on indicator toggles).
-    const sig = `${data.length}:${data[0]?.timestamp ?? ''}:${data[data.length - 1]?.timestamp ?? ''}`
-    if (sig !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = sig }
+    // Refit only when the viewing window actually changed (ticker/range/interval/
+    // custom dates) -- NOT when the underlying bars merely re-render, and NOT on
+    // indicator/strategy toggles, so zoom is preserved for those. Using an
+    // explicit key (rather than inferring from data timestamps) avoids missing a
+    // refit when e.g. only the ticker changes but the date span looks the same.
+    if (fitKey !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = fitKey }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey])
 
   return (
     <div className="relative w-full h-full">

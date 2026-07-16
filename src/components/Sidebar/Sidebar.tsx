@@ -264,8 +264,9 @@ export function Sidebar({
     </div>
   )
 
-  // Trading Platform view: the existing Indicators/Strategies/Saved Views
-  // content (unchanged), plus its toast + context menu.
+  // Indicators + Strategies content: identical in both Trading and Lab modes
+  // -- the Navigator itself doesn't change between views, only the page below
+  // it does. Plus its toast + context menu.
   const tradingBody = (
     <>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -375,7 +376,7 @@ export function Sidebar({
           }`}
         >
           {header}
-          {sidebarView === 'trading' ? tradingBody : <LabPlaceholder />}
+          {tradingBody}
         </aside>
       </>
     )
@@ -428,22 +429,9 @@ export function Sidebar({
       {isOpen && (
         <>
           {header}
-          {sidebarView === 'trading' ? tradingBody : <LabPlaceholder />}
+          {tradingBody}
         </>
       )}
     </aside>
-  )
-}
-
-// Dataset creation/browsing and strategy runs live in the Lab Platform page's
-// own top expansion now (not the Navigator -- too cramped for "a lot of
-// datasets"), so there's nothing left to show here beyond the tab switcher.
-function LabPlaceholder() {
-  return (
-    <div className="flex-1 flex items-center justify-center p-4">
-      <p className="text-[11px] text-gray-600 text-center leading-relaxed">
-        Create and browse datasets, and run strategies against them, from the top panel on the Lab page.
-      </p>
-    </div>
   )
 }

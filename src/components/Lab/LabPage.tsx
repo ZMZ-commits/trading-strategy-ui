@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { LabTopPanel } from './LabTopPanel'
 import { StockChart } from '../Chart/StockChart'
 import { BottomPanel } from '../BottomPanel/BottomPanel'
@@ -25,6 +25,13 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
   // bars (StockChart/windowBars already cap to whatever's actually available),
   // so this just needs to be real state -- not a Lab-wide concern beyond this page.
   const [range, setRange] = useState<Range>('1M')
+  // The chart's currently displayed window (native-granularity bounds) --
+  // reported up so the dataset row table and backtest transactions list
+  // clamp to the exact same range-tab/custom-window cutoff as the chart.
+  const [windowBounds, setWindowBounds] = useState<{ start: string | null; end: string | null }>({ start: null, end: null })
+  const handleWindowChange = useCallback((start: string | null, end: string | null) => {
+    setWindowBounds(prev => (prev.start === start && prev.end === end) ? prev : { start, end })
+  }, [])
   return (
     <>
       <LabTopPanel
@@ -43,6 +50,7 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         onReplayCutoff={onReplayCutoff}
         dataset={dataset}
         datasetBacktest={backtest}
+        onWindowChange={handleWindowChange}
       />
       <BottomPanel
         isMobile={isMobile}
@@ -51,6 +59,8 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         selectedStrategy={null}
         dataset={dataset}
         datasetBacktest={backtest}
+        windowStart={windowBounds.start}
+        windowEnd={windowBounds.end}
       />
     </>
   )

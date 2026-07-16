@@ -44,12 +44,17 @@ interface Props {
    *  the metrics panel can show trades live. */
   onReplayCutoff?: (ts: string | null) => void
   /** Lab Platform: when set, the chart shows this stored dataset's bars
-   *  instead of live ticker data (the range/interval/custom-window/indicator
-   *  controls are hidden; replay still works over the static bars). */
+   *  instead of live ticker data, windowed by the same range/custom-window
+   *  controls as live mode (clamped to what the dataset actually has). */
   dataset?: DatasetMeta | null
   /** A completed backtest run against `dataset`, overlaid the same way a live
    *  strategy is (dashed line + Buy/Sell markers). */
   datasetBacktest?: BacktestMeta | null
+  /** Lab Platform: reports the currently displayed window's [start,end]
+   *  bounds (native-granularity dataset timestamps, not resample buckets) so
+   *  sibling panels -- the raw row table, the backtest transactions list --
+   *  can clamp to the exact same cutoff as the chart. Null/null outside dataset mode. */
+  onWindowChange?: (start: string | null, end: string | null) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -82,6 +87,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
+  onWindowChange,
 }: Props) {
   const isDatasetMode = !!dataset
   const isLive = !isDatasetMode && range === 'NOW'
@@ -202,6 +208,22 @@ export function StockChart({
     if (winStart && winEnd) return filterByDateRange(datasetResampled, winStart, winEnd)
     return windowBars(datasetResampled, range)
   }, [isDatasetMode, datasetResampled, winStart, winEnd, range])
+  // Same range/custom-window cutoff, applied directly to the RAW (native-
+  // granularity) dataset bars rather than the display-resampled ones -- so
+  // the reported bounds line up with actual trade/row timestamps even when
+  // the chart itself is showing a coarser aggregated interval.
+  const datasetRawWindow = useMemo(() => {
+    if (!isDatasetMode) return []
+    if (winStart && winEnd) return filterByDateRange(datasetBars, winStart, winEnd)
+    return windowBars(datasetBars, range)
+  }, [isDatasetMode, datasetBars, winStart, winEnd, range])
+  useEffect(() => {
+    if (!isDatasetMode) { onWindowChange?.(null, null); return }
+    onWindowChange?.(
+      datasetRawWindow[0]?.timestamp ?? null,
+      datasetRawWindow[datasetRawWindow.length - 1]?.timestamp ?? null,
+    )
+  }, [isDatasetMode, datasetRawWindow, onWindowChange])
   const datasetDisplayIndicators = useMemo(() => {
     const out: Record<string, { time: string[]; values: (number | null)[] }> = {}
     if (!isDatasetMode) return out

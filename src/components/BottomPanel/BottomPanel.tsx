@@ -19,16 +19,25 @@ interface Props {
    *  instead of live StockDetails/StrategyMetrics. */
   dataset?: DatasetMeta | null
   datasetBacktest?: BacktestMeta | null
+  /** Lab Platform: the chart's currently displayed window bounds (native-
+   *  granularity dataset timestamps) -- clamps the row table + transactions
+   *  list to the same range-tab/custom-window cutoff as the chart. */
+  windowStart?: string | null
+  windowEnd?: string | null
 }
 
-export function BottomPanel({ isMobile = false, ticker, range, selectedStrategy, replayCutoff, dataset, datasetBacktest }: Props) {
+export function BottomPanel({
+  isMobile = false, ticker, range, selectedStrategy, replayCutoff, dataset, datasetBacktest, windowStart, windowEnd,
+}: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown } = useResizable(240, 120, 'up', () => setCollapsed(true))
   const { width: leftWidth, onDragHandleMouseDown: onHSplitDown } = useHResizable(280)
 
-  const leftContent = dataset ? <DatasetTable dataset={dataset} /> : <StockDetails ticker={ticker} />
+  const leftContent = dataset
+    ? <DatasetTable dataset={dataset} windowStart={windowStart} windowEnd={windowEnd} />
+    : <StockDetails ticker={ticker} />
   const rightContent = dataset
-    ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} />
+    ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} windowStart={windowStart} windowEnd={windowEnd} />
     : <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
 
   // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──

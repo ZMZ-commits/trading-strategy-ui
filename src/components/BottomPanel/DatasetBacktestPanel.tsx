@@ -1,9 +1,17 @@
 import type { BacktestMeta } from '../../api/datasets'
 
+interface Props {
+  backtest: BacktestMeta | null
+  /** Clamp displayed trades + total P&L to the chart's currently active
+   *  range-tab/custom-window cutoff, instead of the whole dataset's history. */
+  windowStart?: string | null
+  windowEnd?: string | null
+}
+
 /** Lab Platform: transactions + total P&L for the selected backtest run
  *  against the active dataset. Same buy/sell pairing + layout as the live
  *  Strategy Metrics panel. */
-export function DatasetBacktestPanel({ backtest }: { backtest: BacktestMeta | null }) {
+export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props) {
   if (!backtest) return (
     <div className="flex-1 p-4 flex items-center justify-center">
       <p className="text-xs text-gray-600">Run a backtest (left) and select it to see results here</p>
@@ -20,15 +28,22 @@ export function DatasetBacktestPanel({ backtest }: { backtest: BacktestMeta | nu
     )
   }
 
+  // Pair buy/sell over the FULL signal history first (so pnl pairing is
+  // never broken by clipping mid-sequence), then clamp to the active window
+  // for display -- same warmup-then-trim principle as the chart's indicators.
   let lastBuy: number | null = null
-  let total = 0
-  let trades = 0
-  const rows = backtest.result.signals.map((s, i) => {
+  const allRows = backtest.result.signals.map((s, i) => {
     let pnl: number | null = null
     if (s.type === 'buy') lastBuy = s.price
-    else if (s.type === 'sell' && lastBuy != null) { pnl = s.price - lastBuy; total += pnl; trades++; lastBuy = null }
+    else if (s.type === 'sell' && lastBuy != null) { pnl = s.price - lastBuy; lastBuy = null }
     return { key: i, time: s.time, type: s.type, price: s.price, pnl }
   })
+  const rows = windowStart && windowEnd
+    ? allRows.filter(r => r.time >= windowStart && r.time <= windowEnd)
+    : allRows
+  let total = 0
+  let trades = 0
+  for (const r of rows) { if (r.pnl != null) { total += r.pnl; trades++ } }
 
   return (
     <div className="flex-1 flex flex-col p-4 overflow-hidden">

@@ -73,6 +73,8 @@ export default function App() {
         selectedStrategy={selectedStrategy}
         onSelectStrategy={s => { setSelectedStrategy(s); if (isMobile) setSidebarOpen(false) }}
         onOpenIde={() => setIdeOpen(true)}
+        ticker={activeTicker}
+        range={activeRange}
       />
     </div>
   )

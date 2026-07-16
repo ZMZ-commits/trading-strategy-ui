@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { StrategySearch } from './StrategySearch'
+import { LabDashboard } from './LabDashboard'
 import { scaffold, listItems, deleteItem, type WorkspaceItems } from '../../api/workspace'
-import type { Strategy } from '../../types'
+import type { Strategy, Range } from '../../types'
 
 interface Props {
   isMobile: boolean
@@ -11,7 +12,12 @@ interface Props {
   onSelectStrategy: (s: Strategy) => void
   /** Open the left web-IDE panel (called after scaffolding so the new folder shows). */
   onOpenIde?: () => void
+  /** Seeds the Lab Platform view's default ticker/range. */
+  ticker: string
+  range: Range
 }
+
+type SidebarView = 'trading' | 'lab'
 
 // Built-in indicators, split by how they render: overlays draw on the price
 // chart; oscillators draw in their own pane.
@@ -75,6 +81,23 @@ function TrashIcon({ className }: { className?: string }) {
   )
 }
 
+function TradingIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19V10m6 9V4m6 15v-7" />
+    </svg>
+  )
+}
+
+function LabIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M9 3h6M10 3v5.5L5.5 17a2 2 0 001.8 3h9.4a2 2 0 001.8-3L14 8.5V3" />
+    </svg>
+  )
+}
+
 // A workspace item row (one IDE folder): click to act, right-click for the menu,
 // or use the hover trash. Hoisted to module scope so the polled re-render of the
 // sidebar doesn't remount the whole list.
@@ -114,13 +137,20 @@ function ItemRow({ slug, selected, onClick, onContextMenu, onDelete }: {
   )
 }
 
-export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde }: Props) {
+export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelectStrategy, onOpenIde, ticker, range }: Props) {
   const [items, setItems] = useState<WorkspaceItems>({ strategies: [], indicators: [] })
   const [indicatorQuery, setIndicatorQuery] = useState('')
   const [strategyQuery, setStrategyQuery] = useState('')
   const [viewQuery, setViewQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  const [sidebarView, setSidebarView] = useState<SidebarView>('trading')
+
+  // Switch view, and expand the panel if it's currently collapsed.
+  const openView = useCallback((v: SidebarView) => {
+    setSidebarView(v)
+    if (!isOpen) onToggle()
+  }, [isOpen, onToggle])
 
   // Reflect the IDE workspace folders, and keep it live (poll so deletions/adds
   // done inside VS Code show up here too).
@@ -194,24 +224,49 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
   // ── Strategies: the IDE folders ──
   const filteredStrategies = items.strategies.filter(s => s.toLowerCase().includes(strategyQuery.toLowerCase()))
 
-  const body = (
-    <>
-      <div className="flex items-center justify-between p-3 border-b border-border flex-shrink-0">
-        <span className="text-sm font-semibold text-gray-300">Navigator</span>
-        {/* Mobile uses an in-header close (X); desktop uses the pinned toggle below. */}
-        {isMobile && (
-          <button
-            onClick={onToggle}
-            className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1"
-            aria-label="Close navigator"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
-      </div>
+  // Shared header: Trading Platform / Lab Platform tab switcher, plus the
+  // mobile close (X). Rendered once, above whichever view is active.
+  const header = (
+    <div className="flex items-center gap-1 p-2 border-b border-border flex-shrink-0">
+      <button
+        onClick={() => openView('trading')}
+        title="Trading Platform"
+        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-semibold truncate transition-colors ${
+          sidebarView === 'trading' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+        }`}
+      >
+        <TradingIcon className="w-3.5 h-3.5 flex-shrink-0" />
+        Trading
+      </button>
+      <button
+        onClick={() => openView('lab')}
+        title="Lab Platform"
+        className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-semibold truncate transition-colors ${
+          sidebarView === 'lab' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+        }`}
+      >
+        <LabIcon className="w-3.5 h-3.5 flex-shrink-0" />
+        Lab
+      </button>
+      {/* Mobile uses an in-header close (X); desktop uses the pinned toggle below. */}
+      {isMobile && (
+        <button
+          onClick={onToggle}
+          className="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 -mr-1 flex-shrink-0"
+          aria-label="Close navigator"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
 
+  // Trading Platform view: the existing Indicators/Strategies/Saved Views
+  // content (unchanged), plus its toast + context menu.
+  const tradingBody = (
+    <>
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {/* ── Indicators ── */}
         <Section title="Indicators" defaultOpen count={totalIndicators} onAdd={() => makeItem('indicator')} addTitle="New indicator">
@@ -326,7 +381,8 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
             isOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
-          {body}
+          {header}
+          {sidebarView === 'trading' ? tradingBody : <LabDashboard ticker={ticker} range={range} />}
         </aside>
       </>
     )
@@ -350,7 +406,38 @@ export function Sidebar({ isMobile, isOpen, onToggle, selectedStrategy, onSelect
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7" />
         </svg>
       </button>
-      {isOpen && body}
+
+      {/* Collapsed: Trading Platform / Lab Platform tabs, below the expand
+          arrow. Clicking one selects that view AND expands the panel. */}
+      {!isOpen && (
+        <div className="flex flex-col items-center gap-1 mt-11 px-1">
+          <button
+            onClick={() => openView('trading')}
+            title="Trading Platform"
+            className={`w-full flex items-center justify-center py-2 rounded transition-colors ${
+              sidebarView === 'trading' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+            }`}
+          >
+            <TradingIcon className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => openView('lab')}
+            title="Lab Platform"
+            className={`w-full flex items-center justify-center py-2 rounded transition-colors ${
+              sidebarView === 'lab' ? 'bg-blue-600/20 text-blue-300' : 'text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+            }`}
+          >
+            <LabIcon className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {isOpen && (
+        <>
+          {header}
+          {sidebarView === 'trading' ? tradingBody : <LabDashboard ticker={ticker} range={range} />}
+        </>
+      )}
     </aside>
   )
 }

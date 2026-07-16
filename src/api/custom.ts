@@ -28,9 +28,12 @@ export async function getCustomSeries(
   slug: string,
   range: Range,
   interval?: Interval,
+  start?: string,
+  end?: string,
 ): Promise<CustomSeries[]> {
   const params = new URLSearchParams({ range })
   if (interval) params.set('interval', interval)
+  if (start && end) { params.set('start', start); params.set('end', end) }
   const res = await fetch(`${API_BASE}/stocks/${encodeURIComponent(ticker)}/custom/${encodeURIComponent(slug)}?${params}`)
   if (!res.ok) return []
   const j = await res.json()

@@ -140,10 +140,16 @@ export function StockChart({
   const winStart = cwin?.start
   const winEnd = cwin?.end
   const dataInterval = cwin ? cwin.interval : effectiveInterval
+  // Scrubber selection: a FOCUS window layered on top of whatever range/custom
+  // window the candlesticks are showing. Deliberately kept separate from cwin
+  // -- dragging the scrubber narrows which indicator/strategy data is shown
+  // without ever re-windowing (or re-fitting) the candlesticks/volume
+  // themselves, unlike range tabs / the calendar picker, which do move them.
+  const [scrubWindow, setScrubWindow] = useState<{ start: string; end: string } | null>(null)
   // Selecting a different dataset always starts from its full span -- clear
   // any custom window/interval override left over from a previous dataset
   // (LabPage resets its own range state the same way for the same reason).
-  useEffect(() => { setCwin(null); setIntervalOverride(undefined) }, [dataset?.id])
+  useEffect(() => { setCwin(null); setIntervalOverride(undefined); setScrubWindow(null) }, [dataset?.id])
   // Custom window's own interval choices: in dataset mode, only the dataset's
   // native interval or coarser is actually viewable (mirrors supportedIntervals).
   const customIntervalOptions: Interval[] = isDatasetMode
@@ -153,12 +159,14 @@ export function StockChart({
   const applyCustom = () => {
     if (!cFrom || !cTo) return
     setCwin({ start: cFrom, end: cTo, interval: cIv })
+    setScrubWindow(null)
     setCustomOpen(false)
   }
 
   const handleRangeChange = (r: Range) => {
     setIntervalOverride(undefined)
     setCwin(null)
+    setScrubWindow(null)
     onRangeChange(r)
   }
 
@@ -230,19 +238,32 @@ export function StockChart({
     if (winStart && winEnd) return filterByDateRange(datasetBars, winStart, winEnd)
     return windowBars(datasetBars, range)
   }, [isDatasetMode, datasetBars, winStart, winEnd, range])
+  // The scrubber's own selection, when active, narrows indicators + the
+  // strategy overlay WITHOUT touching the candlesticks/volume (datasetDisplayBars/
+  // datasetRawWindow above stay exactly as the range tabs/custom picker left
+  // them) -- falls back to that same window when no scrub selection is active,
+  // so indicators/strategy match the candlesticks by default as before.
+  const focusWindowBars = useMemo(
+    () => (scrubWindow ? filterByDateRange(datasetResampled, scrubWindow.start, scrubWindow.end) : datasetDisplayBars),
+    [scrubWindow, datasetResampled, datasetDisplayBars],
+  )
+  const focusRawWindow = useMemo(
+    () => (scrubWindow ? filterByDateRange(datasetBars, scrubWindow.start, scrubWindow.end) : datasetRawWindow),
+    [scrubWindow, datasetBars, datasetRawWindow],
+  )
   useEffect(() => {
     if (!isDatasetMode) { onWindowChange?.(null, null); return }
     onWindowChange?.(
-      datasetRawWindow[0]?.timestamp ?? null,
-      datasetRawWindow[datasetRawWindow.length - 1]?.timestamp ?? null,
+      focusRawWindow[0]?.timestamp ?? null,
+      focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null,
     )
-  }, [isDatasetMode, datasetRawWindow, onWindowChange])
+  }, [isDatasetMode, focusRawWindow, onWindowChange])
   const datasetDisplayIndicators = useMemo(() => {
     const out: Record<string, { time: string[]; values: (number | null)[] }> = {}
     if (!isDatasetMode) return out
-    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, datasetDisplayBars)
+    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, focusWindowBars)
     return out
-  }, [isDatasetMode, datasetIndicatorsFull, datasetDisplayBars])
+  }, [isDatasetMode, datasetIndicatorsFull, focusWindowBars])
   const indicators = isDatasetMode ? datasetDisplayIndicators : liveIndicators
 
   // The strategy shown on the chart follows the Navigator selection (a workspace
@@ -269,10 +290,22 @@ export function StockChart({
       if (next.has(name)) next.delete(name); else next.add(name)
       return next
     })
-  const visibleStrategyData = useMemo(
-    () => ({ ...strategyData, lines: strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name)) }),
-    [strategyData, hiddenStrategyLines],
-  )
+  // Clamp the strategy overlay (lines + buy/sell markers) to the same focus
+  // window driving indicators, so both move together when the range/custom
+  // window changes -- or when the scrubber narrows the focus without moving
+  // the candlesticks. Live mode already gets pre-windowed data from the API
+  // (winStart/winEnd query params), so this only applies in dataset mode.
+  const visibleStrategyData = useMemo(() => {
+    const lines = strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name))
+    if (!isDatasetMode || focusWindowBars.length === 0) return { ...strategyData, lines }
+    const start = focusWindowBars[0].timestamp
+    const end = focusWindowBars[focusWindowBars.length - 1].timestamp
+    return {
+      ...strategyData,
+      lines: lines.map(ln => windowSeries(ln, focusWindowBars)),
+      signals: strategyData.signals.filter(s => s.time >= start && s.time <= end),
+    }
+  }, [strategyData, hiddenStrategyLines, isDatasetMode, focusWindowBars])
 
   // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
   // on automatically when it's selected (like a mod bringing its dependencies),
@@ -633,17 +666,18 @@ export function StockChart({
         {body}
       </div>
 
-      {/* Dataset time scrubber — drag to pick an arbitrary window over the
-          whole dataset; the chart, row table, and transactions panel all
-          clamp to it live as you drag (same plumbing as the range tabs/
-          custom date picker, just a more direct hands-on control). */}
+      {/* Dataset time scrubber — drag to focus indicators + the strategy
+          overlay on a sub-window; the candlesticks/volume never move (that's
+          still only range tabs/the custom date picker), but the row table
+          and transactions panel do follow the scrub focus, same as they
+          follow the candlestick window otherwise. */}
       {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}
-          windowStart={datasetRawWindow[0]?.timestamp ?? null}
-          windowEnd={datasetRawWindow[datasetRawWindow.length - 1]?.timestamp ?? null}
-          onChange={(s, e) => setCwin({ start: s, end: e, interval: (dataInterval ?? dataset!.interval) as Interval })}
-          onClear={() => setCwin(null)}
+          windowStart={focusRawWindow[0]?.timestamp ?? null}
+          windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          onChange={(s, e) => setScrubWindow({ start: s, end: e })}
+          onClear={() => setScrubWindow(null)}
         />
       )}
 

@@ -241,6 +241,26 @@ export function StockChart({
     ? (datasetBacktest ? backtestToChartData(datasetBacktest) : EMPTY_STRATEGY_DATA)
     : liveStrategyData
 
+  // A strategy's own ctx.plot() lines (e.g. an ATR reference a strategy
+  // computes for itself) are listed in the Indicators picker's "Strategy"
+  // section so they can be individually hidden while inspecting/authoring a
+  // strategy, instead of being an opaque always-on overlay. Resets whenever
+  // the active strategy/backtest itself changes, so a toggle doesn't
+  // silently carry over to a different strategy's same-named line.
+  const activeStrategyKey = isDatasetMode ? (datasetBacktest?.id ?? null) : strategySlug
+  const [hiddenStrategyLines, setHiddenStrategyLines] = useState<Set<string>>(new Set())
+  useEffect(() => { setHiddenStrategyLines(new Set()) }, [activeStrategyKey])
+  const toggleStrategyLine = (name: string) =>
+    setHiddenStrategyLines(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name); else next.add(name)
+      return next
+    })
+  const visibleStrategyData = useMemo(
+    () => ({ ...strategyData, lines: strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name)) }),
+    [strategyData, hiddenStrategyLines],
+  )
+
   // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
   // on automatically when it's selected (like a mod bringing its dependencies),
   // and untick exactly those same ones again when the strategy is deselected (or
@@ -319,13 +339,13 @@ export function StockChart({
   const displayIndicators = replaySlicing ? sliceIndicators(indicators, revealN) : indicators
   const displayCustom = replaySlicing ? customSeries.map(s => sliceSeries(s, revealN)) : customSeries
   const displayStrategy = useMemo(() => {
-    if (!replaySlicing || !strategyData) return strategyData
+    if (!replaySlicing || !visibleStrategyData) return visibleStrategyData
     return {
-      ...strategyData,
-      lines: strategyData.lines.map(ln => sliceSeries(ln, revealN)),
-      signals: strategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
+      ...visibleStrategyData,
+      lines: visibleStrategyData.lines.map(ln => sliceSeries(ln, revealN)),
+      signals: visibleStrategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
     }
-  }, [replaySlicing, revealN, cutoffMs, strategyData])
+  }, [replaySlicing, revealN, cutoffMs, visibleStrategyData])
 
   // Report the replay playhead time so the metrics panel can show trades live.
   const replayCutoffTs = replaySlicing && displayData.length ? displayData[displayData.length - 1].timestamp : null
@@ -464,6 +484,31 @@ export function StockChart({
                         <>
                           <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Custom</div>
                           {customList.map(c => pickRow({ id: `custom:${c.slug}`, label: c.name }))}
+                        </>
+                      )}
+                      {/* The active strategy's own ctx.plot() lines -- e.g. an
+                          ATR reference it computes for itself -- listed so
+                          they can be hidden individually while inspecting or
+                          authoring a strategy, instead of an opaque overlay
+                          that only comes and goes with the whole strategy. */}
+                      {strategyData.lines.length > 0 && (
+                        <>
+                          <div className="px-2 py-1 mt-1 text-gray-500 uppercase text-[10px] tracking-wide">Strategy</div>
+                          {strategyData.lines.map(ln => {
+                            const on = !hiddenStrategyLines.has(ln.name)
+                            return (
+                              <button
+                                key={ln.name}
+                                onClick={() => toggleStrategyLine(ln.name)}
+                                className="flex items-center gap-2 w-full px-2 py-1 rounded hover:bg-gray-700 text-left"
+                              >
+                                <span className={`h-3 w-3 rounded-sm border flex items-center justify-center text-[9px] ${
+                                  on ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600'
+                                }`}>{on ? '✓' : ''}</span>
+                                <span className={on ? 'text-gray-100' : 'text-gray-400'}>{ln.name}</span>
+                              </button>
+                            )
+                          })}
                         </>
                       )}
                     </div>

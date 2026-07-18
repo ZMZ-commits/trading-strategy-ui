@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
@@ -242,15 +242,27 @@ export function StockChart({
     : liveStrategyData
 
   // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
-  // on automatically when it's selected (like a mod bringing its dependencies).
+  // on automatically when it's selected (like a mod bringing its dependencies),
+  // and untick exactly those same ones again when the strategy is deselected (or
+  // swapped for one with different requirements) -- otherwise the chart is left
+  // showing extra indicators the user never asked for, and never returns to its
+  // original look. Only ids we ourselves auto-added are ever removed; anything
+  // the user ticked on manually is left alone.
   const reqKey = strategyData.requires.join(',')
+  const prevReqRef = useRef<string[]>([])
   useEffect(() => {
-    if (!reqKey) return
-    const req = reqKey.split(',')
-    setSelectedIds(prev => {
-      const add = req.filter(r => r && !prev.includes(r))
-      return add.length ? [...prev, ...add] : prev
-    })
+    const req = reqKey ? reqKey.split(',').filter(Boolean) : []
+    const prevReq = prevReqRef.current
+    const noLongerRequired = prevReq.filter(r => !req.includes(r))
+    const newlyRequired = req.filter(r => !prevReq.includes(r))
+    if (newlyRequired.length || noLongerRequired.length) {
+      setSelectedIds(prev => {
+        const kept = prev.filter(id => !noLongerRequired.includes(id))
+        const add = newlyRequired.filter(r => !kept.includes(r))
+        return add.length ? [...kept, ...add] : kept
+      })
+    }
+    prevReqRef.current = req
   }, [reqKey])
 
   // ── Replay: reveal bars from the left, with play/pause + speed. ──

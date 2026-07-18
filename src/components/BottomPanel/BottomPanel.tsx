@@ -24,21 +24,31 @@ interface Props {
    *  list to the same range-tab/custom-window cutoff as the chart. */
   windowStart?: string | null
   windowEnd?: string | null
+  /** Lab Platform: true whenever this panel is rendered on the Lab page, even
+   *  with no dataset selected yet. Without this, "no dataset" fell back to
+   *  StockDetails/StrategyMetrics for whatever ticker/strategy was last active
+   *  in Trading mode -- stale dashboard content leaking into a blank Lab page. */
+  labMode?: boolean
 }
 
 export function BottomPanel({
   isMobile = false, ticker, range, selectedStrategy, replayCutoff, dataset, datasetBacktest, windowStart, windowEnd,
+  labMode = false,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown } = useResizable(240, 120, 'up', () => setCollapsed(true))
   const { width: leftWidth, onDragHandleMouseDown: onHSplitDown } = useHResizable(280)
 
+  const noDatasetSelected = labMode && !dataset
+  const empty = <div className="flex-1 flex items-center justify-center p-4">
+    <p className="text-xs text-gray-600">Select a dataset above to view it here</p>
+  </div>
   const leftContent = dataset
     ? <DatasetTable dataset={dataset} windowStart={windowStart} windowEnd={windowEnd} />
-    : <StockDetails ticker={ticker} />
+    : noDatasetSelected ? empty : <StockDetails ticker={ticker} />
   const rightContent = dataset
     ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} windowStart={windowStart} windowEnd={windowEnd} />
-    : <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
+    : noDatasetSelected ? empty : <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
 
   // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──
   if (isMobile) {
@@ -78,7 +88,7 @@ export function BottomPanel({
       {collapsed ? (
         <div className="flex items-center h-7 px-3">
           <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-            {dataset ? 'Dataset & Backtest' : 'Details & Metrics'}
+            {dataset ? 'Dataset & Backtest' : noDatasetSelected ? 'No dataset selected' : 'Details & Metrics'}
           </span>
         </div>
       ) : (

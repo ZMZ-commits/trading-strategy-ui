@@ -3,6 +3,7 @@ import { RangeTabs } from './RangeTabs'
 import { LWChart } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
 import { DateRangePicker } from './DateRangePicker'
+import { DatasetTimeScrubber } from './DatasetTimeScrubber'
 import { useStockData } from '../../hooks/useStockData'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
@@ -55,6 +56,13 @@ interface Props {
    *  sibling panels -- the raw row table, the backtest transactions list --
    *  can clamp to the exact same cutoff as the chart. Null/null outside dataset mode. */
   onWindowChange?: (start: string | null, end: string | null) => void
+  /** Lab Platform: true whenever this chart is rendered on the Lab page, even
+   *  with no dataset selected yet. Without this, "no dataset" looks identical
+   *  to plain Trading mode and the chart falls back to fetching/showing
+   *  whatever ticker was last active there -- stale dashboard data leaking
+   *  into a blank Lab page. When set and `dataset` is null, the chart renders
+   *  a clean empty state instead of ever fetching live data. */
+  labMode?: boolean
 }
 
 const OVERLAY_ITEMS = [
@@ -87,10 +95,11 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
-  onWindowChange,
+  onWindowChange, labMode = false,
 }: Props) {
   const isDatasetMode = !!dataset
-  const isLive = !isDatasetMode && range === 'NOW'
+  const noDatasetSelected = labMode && !isDatasetMode
+  const isLive = !isDatasetMode && !labMode && range === 'NOW'
 
   // Lab Platform: load the stored dataset's bars once when it's selected.
   // Live-data hooks below are fed an empty ticker in this mode so they skip
@@ -109,7 +118,7 @@ export function StockChart({
       .finally(() => { if (!cancelled) setDatasetLoading(false) })
     return () => { cancelled = true }
   }, [dataset])
-  const liveTicker = isDatasetMode ? '' : ticker
+  const liveTicker = (isDatasetMode || labMode) ? '' : ticker
   // In dataset mode you can only view at the dataset's own stored granularity
   // or something coarser (aggregated up) -- there's no live-range concept.
   const supportedIntervals = isDatasetMode ? availableIntervals(dataset!.interval) : (RANGE_INTERVALS[range] ?? [])
@@ -131,6 +140,10 @@ export function StockChart({
   const winStart = cwin?.start
   const winEnd = cwin?.end
   const dataInterval = cwin ? cwin.interval : effectiveInterval
+  // Selecting a different dataset always starts from its full span -- clear
+  // any custom window/interval override left over from a previous dataset
+  // (LabPage resets its own range state the same way for the same reason).
+  useEffect(() => { setCwin(null); setIntervalOverride(undefined) }, [dataset?.id])
   // Custom window's own interval choices: in dataset mode, only the dataset's
   // native interval or coarser is actually viewable (mirrors supportedIntervals).
   const customIntervalOptions: Interval[] = isDatasetMode
@@ -363,6 +376,7 @@ export function StockChart({
   )
 
   const body = (() => {
+    if (noDatasetSelected) return status('Select a dataset above to view its chart')
     if (isDatasetMode) {
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
@@ -413,7 +427,9 @@ export function StockChart({
       <div className="flex flex-col gap-2 mb-2 lg:flex-row lg:items-center lg:justify-between lg:gap-2 lg:mb-3">
         {/* Ticker + price (or dataset identity, in Lab mode) */}
         <div className="flex items-center gap-3">
-          <span className="text-xl font-bold text-gray-100">{isDatasetMode ? dataset!.ticker : ticker}</span>
+          <span className="text-xl font-bold text-gray-100">
+            {isDatasetMode ? dataset!.ticker : noDatasetSelected ? 'No dataset selected' : ticker}
+          </span>
           {latest && <span className="text-lg text-gray-300">${latest.close.toFixed(2)}</span>}
           {isDatasetMode ? (
             <span className="text-xs text-gray-500">
@@ -430,7 +446,7 @@ export function StockChart({
 
         {/* Controls + range tabs */}
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
-          {!isLive && (
+          {!isLive && !noDatasetSelected && (
             <div className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap lg:gap-2">
               <div className="flex rounded overflow-hidden border border-border">
                 {toggleBtn(chartType === 'candlestick', () => setChartType('candlestick'), 'Candles', 'Candlestick')}
@@ -616,6 +632,20 @@ export function StockChart({
       <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
       </div>
+
+      {/* Dataset time scrubber — drag to pick an arbitrary window over the
+          whole dataset; the chart, row table, and transactions panel all
+          clamp to it live as you drag (same plumbing as the range tabs/
+          custom date picker, just a more direct hands-on control). */}
+      {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
+        <DatasetTimeScrubber
+          bars={datasetBars}
+          windowStart={datasetRawWindow[0]?.timestamp ?? null}
+          windowEnd={datasetRawWindow[datasetRawWindow.length - 1]?.timestamp ?? null}
+          onChange={(s, e) => setCwin({ start: s, end: e, interval: (dataInterval ?? dataset!.interval) as Interval })}
+          onClear={() => setCwin(null)}
+        />
+      )}
 
       {/* Replay transport — a real row BELOW the chart, never an overlay on top
           of it, so it can never steal clicks/scroll/drag from the chart's own

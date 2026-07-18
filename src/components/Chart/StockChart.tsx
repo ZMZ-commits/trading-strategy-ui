@@ -657,7 +657,7 @@ export function StockChart({
               cap to what's actually available); scroll horizontally on touch,
               inline on desktop. */}
           <div className="overflow-x-auto scrollbar-thin -mx-0.5 px-0.5 lg:overflow-visible lg:mx-0 lg:px-0">
-            <RangeTabs active={range} onChange={handleRangeChange} />
+            <RangeTabs active={range} onChange={handleRangeChange} excludeNow={labMode} />
           </div>
         </div>
       </div>

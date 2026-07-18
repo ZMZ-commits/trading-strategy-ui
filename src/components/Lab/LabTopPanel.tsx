@@ -4,7 +4,7 @@ import { useHResizable } from '../../hooks/useHResizable'
 import { ResizeHandle } from '../common/ResizeHandle'
 import {
   createDataset, listDatasets, cancelDataset, deleteDataset,
-  createBacktest, listBacktests, cancelBacktest,
+  createBacktest, listBacktests, cancelBacktest, deleteBacktest,
   type DatasetMeta, type BacktestMeta,
 } from '../../api/datasets'
 import { listItems } from '../../api/workspace'
@@ -285,6 +285,17 @@ export function LabTopPanel({
                             className="text-[10px] text-amber-500 hover:text-amber-300"
                           >cancel</span>
                         )}
+                        <span
+                          role="button" tabIndex={-1}
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (window.confirm(`Delete this ${b.strategy_slug} run?`)) {
+                              if (b.id === activeBacktestId) onSelectBacktest(null)
+                              deleteBacktest(activeDataset.id, b.id).then(refreshBacktests)
+                            }
+                          }}
+                          className="text-[10px] text-gray-600 hover:text-red-400"
+                        >delete</span>
                       </span>
                     </button>
                   </li>

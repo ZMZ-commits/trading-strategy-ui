@@ -128,6 +128,15 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   useEffect(() => {
     const c = chart.current
     if (!c) return
+    // Every series gets torn down and rebuilt on any dependency change (not
+    // just fitKey), including indicator/strategy-only updates. Lightweight
+    // Charts doesn't reliably keep the prior visible range across a full
+    // rebuild -- if a just-added series (e.g. an indicator windowed to a
+    // wider focus than the candlesticks, via the dataset time scrubber) spans
+    // more time than what was visible, the chart silently widens to show it.
+    // Capture the range now and explicitly restore it below (unless this is
+    // a real refit) so indicator/strategy-only changes never move the view.
+    const savedRange = c.timeScale().getVisibleRange()
     for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
     seriesRefs.current = []
     labeled.current = []
@@ -300,7 +309,14 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // indicator/strategy toggles, so zoom is preserved for those. Using an
     // explicit key (rather than inferring from data timestamps) avoids missing a
     // refit when e.g. only the ticker changes but the date span looks the same.
-    if (fitKey !== dataSig.current) { c.timeScale().fitContent(); dataSig.current = fitKey }
+    if (fitKey !== dataSig.current) {
+      c.timeScale().fitContent()
+      dataSig.current = fitKey
+    } else if (savedRange) {
+      // Not a real refit -- put the view back exactly where it was instead of
+      // trusting whatever range the rebuilt series settled on.
+      try { c.timeScale().setVisibleRange(savedRange) } catch { /* noop */ }
+    }
     renderLegend()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey])

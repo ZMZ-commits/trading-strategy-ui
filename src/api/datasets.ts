@@ -75,6 +75,8 @@ export const getBacktest = (datasetId: string, backtestId: string) =>
   req<BacktestMeta>(`/datasets/${datasetId}/backtests/${backtestId}`)
 export const cancelBacktest = (datasetId: string, backtestId: string) =>
   req<BacktestMeta>(`/datasets/${datasetId}/backtests/${backtestId}/cancel`, { method: 'POST' })
+export const deleteBacktest = (datasetId: string, backtestId: string) =>
+  req<void>(`/datasets/${datasetId}/backtests/${backtestId}`, { method: 'DELETE' })
 
 /** Compute indicators over caller-supplied bars (e.g. a Lab dataset's stored/
  *  resampled bars) instead of a live fetch -- same math as the live indicators

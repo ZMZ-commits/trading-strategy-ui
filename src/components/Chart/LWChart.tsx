@@ -242,8 +242,13 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
-    // Strategy: dashed trailing line(s) on the price pane + dotted Buy/Sell
-    // vertical markers (Buy = red, Sell = green).
+    // Strategy: dashed trailing line(s) + dotted Buy/Sell vertical markers
+    // (Buy = red, Sell = green). Overlay-kind lines (e.g. a trailing-stop
+    // level) share the price pane/scale; oscillator-kind lines (e.g. an ATR
+    // a strategy plots for its own reference) get their own pane, same as
+    // custom published indicators just above -- otherwise a wildly
+    // different-scale series (ATR ~10s vs. price in the thousands) wrecks
+    // the price pane's autoscale and squishes the candles flat.
     if (strategy) {
       const STRAT_COLORS = ['#eab308', '#22d3ee', '#f472b6', '#a78bfa', '#4ade80']
       let si = 0
@@ -255,6 +260,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
         }
         if (!pts.length) continue
         const color = STRAT_COLORS[si % STRAT_COLORS.length]; si++
+        if (ln.kind === 'oscillator') {
+          add(LineSeries, { color, lineWidth: 1, title: ln.name }, pane).setData(pts)
+          pane++
+          continue
+        }
         const s = add(LineSeries, {
           color, lineWidth: 2, lineStyle: LineStyle.Dashed,
           priceLineVisible: false, lastValueVisible: false,

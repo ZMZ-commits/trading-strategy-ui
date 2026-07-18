@@ -108,7 +108,10 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       },
       grid: { vertLines: { color: '#1c2128' }, horzLines: { color: '#1c2128' } },
       rightPriceScale: { borderColor: '#21262d' },
-      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false },
+      // minBarSpacing defaults to 0.5px, which caps how far fitContent() can
+      // zoom out -- with a large dataset (e.g. thousands of 1m bars) MAX
+      // couldn't compress far enough to show the whole thing end-to-end.
+      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false, minBarSpacing: 0.001 },
       crosshair: { mode: CrosshairMode.Normal },
     })
     chart.current = c

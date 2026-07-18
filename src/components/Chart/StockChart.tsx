@@ -367,7 +367,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={{}} oscillators={[]} strategy={displayStrategy} fitKey={fitKey} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')

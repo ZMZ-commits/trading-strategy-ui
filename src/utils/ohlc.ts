@@ -83,11 +83,15 @@ export function windowBars(bars: OHLCBar[], range: Range): OHLCBar[] {
   return bars.filter(b => new Date(b.timestamp).getTime() >= cutoff)
 }
 
-/** Filter bars to an explicit [start,end] date range (the custom date picker,
- *  bounded to the dataset's own start/end by the caller). */
+/** Filter bars to an explicit [start,end] range. Used both by the custom date
+ *  picker (date-only strings like "2024-01-15", where "end" means through the
+ *  END of that day) and the dataset time scrubber (exact bar timestamps,
+ *  where "end" means exactly that instant -- padding it out by almost a full
+ *  day made the scrubbed window visibly grow past wherever the drag actually
+ *  stopped). Distinguish by string length rather than needing two functions. */
 export function filterByDateRange(bars: OHLCBar[], start: string, end: string): OHLCBar[] {
   const startMs = new Date(start).getTime()
-  const endMs = new Date(end).getTime() + 86400000 - 1 // inclusive of the end date
+  const endMs = end.length <= 10 ? new Date(end).getTime() + 86400000 - 1 : new Date(end).getTime()
   return bars.filter(b => {
     const t = new Date(b.timestamp).getTime()
     return t >= startMs && t <= endMs

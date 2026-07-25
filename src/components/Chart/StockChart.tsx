@@ -4,7 +4,10 @@ import { LWChart } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
 import { DateRangePicker } from './DateRangePicker'
 import { DatasetTimeScrubber } from './DatasetTimeScrubber'
+import { ChunkProgress } from './ChunkProgress'
 import { useStockData } from '../../hooks/useStockData'
+import { useHistoryJob } from '../../hooks/useHistoryJob'
+import { isLongPull, chunkCount } from '../../utils/intervalCoverage'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
@@ -18,20 +21,24 @@ const EMPTY_STRATEGY_DATA: StrategyChartData = { lines: [], signals: [], logs: [
 
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
 
-// Which intervals are supported for each range (first entry = default).
+// Which intervals are offered for each range (first entry = that range's
+// default). Fine intervals are offered on the long ranges too and are charted
+// as picked -- never swapped for something coarser. Where that takes several
+// sequential fetches it runs behind a progress ring, and where the data simply
+// doesn't go back as far as the range asks, the header says where it stops.
 const RANGE_INTERVALS: Record<string, Interval[]> = {
   '30M': ['1m'],
   '1H':  ['1m'],
   '5H':  ['1m'],
   '1D':  ['1m', '1h'],
-  '5D':  ['1h', '1d'],
-  '1M':  ['1d', '1h'],
-  '3M':  ['1d', '1h'],
-  '6M':  ['1d', '1h'],
-  'YTD': ['1d', '1w'],
-  '1Y':  ['1d', '1w'],
-  '5Y':  ['1w', '1d', '1mo'],
-  'MAX': ['1mo', '1w'],
+  '5D':  ['1h', '1d', '1m'],
+  '1M':  ['1d', '1h', '1m'],
+  '3M':  ['1d', '1h', '1m'],
+  '6M':  ['1d', '1h', '1m'],
+  'YTD': ['1d', '1w', '1h', '1m'],
+  '1Y':  ['1d', '1w', '1h', '1m'],
+  '5Y':  ['1w', '1d', '1mo', '1h', '1m'],
+  'MAX': ['1mo', '1w', '1d', '1h', '1m'],
 }
 
 interface Props {
@@ -170,7 +177,19 @@ export function StockChart({
     onRangeChange(r)
   }
 
-  const { data, loading, error } = useStockData(liveTicker, range, dataInterval, winStart, winEnd)
+  // The requested interval is charted as-is -- never swapped for a coarser one.
+  // Picking 1m on MAX charts 1m over however far back that data exists; the
+  // fetch reports where it had to stop and the header says so.
+  //
+  // Fetches needing several sequential upstream requests run as a tracked job
+  // with a progress ring; everything else stays on the plain single-request
+  // path. A custom date window keeps its own existing fetch path.
+  const longPull = !isDatasetMode && !isLive && !cwin && isLongPull(dataInterval, range)
+  const job = useHistoryJob(liveTicker, range, dataInterval, longPull)
+
+  const { data, loading, error } = useStockData(
+    longPull ? '' : liveTicker, range, dataInterval, winStart, winEnd,
+  )
   const { ticks, connected } = useLiveTicks(liveTicker, isLive && !isDatasetMode)
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
@@ -192,7 +211,21 @@ export function StockChart({
     [selectedIds],
   )
 
-  const liveIndicators = useIndicators(liveTicker, range, studies, dataInterval, winStart, winEnd)
+  // During a long pull the indicator endpoint would run its own separate fetch
+  // and could disagree with the chunked bars we actually charted, so indicators
+  // are computed from those exact bars instead (same approach as Lab datasets).
+  const liveIndicators = useIndicators(
+    longPull ? '' : liveTicker, range, studies, dataInterval, winStart, winEnd,
+  )
+  const [jobIndicators, setJobIndicators] = useState<Record<string, { time: string[]; values: (number | null)[] }>>({})
+  useEffect(() => {
+    if (!longPull || studies.length === 0 || job.bars.length === 0) { setJobIndicators({}); return }
+    let cancelled = false
+    computeIndicators(job.bars, studies)
+      .then(ind => { if (!cancelled) setJobIndicators(ind) })
+      .catch(() => { if (!cancelled) setJobIndicators({}) })
+    return () => { cancelled = true }
+  }, [longPull, job.bars, studies])
 
   // Custom (user-published) indicators: picker entries use id `custom:<slug>`.
   // Not offered in dataset mode yet (they run via the live sandbox path);
@@ -264,7 +297,7 @@ export function StockChart({
     for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, focusWindowBars)
     return out
   }, [isDatasetMode, datasetIndicatorsFull, focusWindowBars])
-  const indicators = isDatasetMode ? datasetDisplayIndicators : liveIndicators
+  const indicators = isDatasetMode ? datasetDisplayIndicators : (longPull ? jobIndicators : liveIndicators)
 
   // The strategy shown on the chart follows the Navigator selection (a workspace
   // strategy), so it stays in sync with the metrics panel. In dataset mode the
@@ -341,7 +374,7 @@ export function StockChart({
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
   }))
-  const chartData = isDatasetMode ? datasetDisplayBars : (isLive ? liveData : data)
+  const chartData = isDatasetMode ? datasetDisplayBars : (isLive ? liveData : (longPull ? job.bars : data))
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
   const fullLen = chartData.length
@@ -421,6 +454,18 @@ export function StockChart({
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
       return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} />
     }
+    // Long pulls take several sequential upstream requests, so they get a
+    // determinate ring rather than an indefinite "Loading…".
+    if (longPull && job.loading) {
+      return (
+        <ChunkProgress
+          progress={job.progress} done={job.done} total={job.total}
+          label={`Fetching ${dataInterval} bars for ${range}…`}
+          onCancel={job.cancel}
+        />
+      )
+    }
+    if (longPull && job.error) return status(job.error, 'error')
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
@@ -469,10 +514,20 @@ export function StockChart({
               {dataset!.start} → {dataset!.end} · {dataset!.interval}
               {datasetBacktest && <span className="text-blue-400 ml-2">· {datasetBacktest.strategy_slug}</span>}
             </span>
-          ) : isLive && (
+          ) : isLive ? (
             <span className="flex items-center gap-1.5 text-xs font-medium">
               <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
               <span className={connected ? 'text-green-400' : 'text-gray-500'}>{connected ? 'LIVE' : 'connecting'}</span>
+            </span>
+          ) : job.effectiveStart && (
+            // The requested interval is always charted; it just can't always
+            // reach as far back as the range asks, so say where it stops.
+            <span className="flex items-center gap-1 text-[11px] text-gray-500" title="Upstream data-retention limit">
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" strokeWidth={2} />
+                <path strokeLinecap="round" strokeWidth={2} d="M12 8h.01M11 12h1v4h1" />
+              </svg>
+              {`${dataInterval} data only goes back to ${new Date(job.effectiveStart).toLocaleDateString()}`}
             </span>
           )}
         </div>
@@ -580,15 +635,20 @@ export function StockChart({
                   {intervalOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIntervalOpen(false)} />
-                      <div className="absolute left-0 mt-1 z-20 w-20 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
+                      <div className="absolute left-0 mt-1 z-20 w-24 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
                         {ALL_INTERVALS.map(iv => {
                           const supported = supportedIntervals.includes(iv)
                           const active = (effectiveInterval ?? supportedIntervals[0]) === iv
+                          // Options needing several sequential fetches get a
+                          // clock, so it's clear which ones run behind a
+                          // progress ring before you pick them.
+                          const slow = supported && !isDatasetMode && isLongPull(iv, range)
                           return (
                             <button
                               key={iv}
                               disabled={!supported}
                               onClick={() => { setIntervalOverride(iv); setIntervalOpen(false) }}
+                              title={slow ? `${iv} over ${range} is fetched in ${chunkCount(iv, range)} parts` : undefined}
                               className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded text-left transition-colors ${
                                 !supported
                                   ? 'text-gray-600 cursor-not-allowed'
@@ -599,6 +659,13 @@ export function StockChart({
                             >
                               {iv}
                               {!supported && <span className="text-[9px] text-gray-600 ml-auto">n/a</span>}
+                              {slow && (
+                                <svg className={`w-3 h-3 ml-auto ${active ? 'text-blue-200' : 'text-gray-500'}`}
+                                  fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                  <circle cx="12" cy="12" r="9" strokeWidth={2} />
+                                  <path strokeLinecap="round" strokeWidth={2} d="M12 7v5l3 2" />
+                                </svg>
+                              )}
                             </button>
                           )
                         })}
@@ -657,7 +724,7 @@ export function StockChart({
               cap to what's actually available); scroll horizontally on touch,
               inline on desktop. */}
           <div className="overflow-x-auto scrollbar-thin -mx-0.5 px-0.5 lg:overflow-visible lg:mx-0 lg:px-0">
-            <RangeTabs active={range} onChange={handleRangeChange} />
+            <RangeTabs active={range} onChange={handleRangeChange} excludeNow={labMode} />
           </div>
         </div>
       </div>

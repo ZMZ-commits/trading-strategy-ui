@@ -634,9 +634,13 @@ export function StockChart({
                 <div className="relative">
                   <button
                     onClick={() => setIntervalOpen(o => !o)}
+                    title={fellBackFrom ? `${fellBackFrom} can't reach across ${range}; charting ${coveredInterval}` : undefined}
                     className="px-2.5 py-1.5 text-xs rounded border border-border text-gray-400 hover:bg-gray-700 active:bg-gray-700 transition-colors"
                   >
-                    {effectiveInterval ?? supportedIntervals[0]} ▾
+                    {/* On a fallback, show both what was picked and what's
+                        actually charted -- showing only the pick would label the
+                        chart with an interval it isn't drawing. */}
+                    {fellBackFrom ? `${fellBackFrom}→${coveredInterval}` : (effectiveInterval ?? supportedIntervals[0])} ▾
                   </button>
                   {intervalOpen && (
                     <>

@@ -645,20 +645,30 @@ export function StockChart({
                   {intervalOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setIntervalOpen(false)} />
-                      <div className="absolute left-0 mt-1 z-20 w-20 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
+                      <div className="absolute left-0 mt-1 z-20 w-24 bg-surface border border-border rounded-md shadow-xl p-1 text-xs lg:left-auto lg:right-0">
                         {ALL_INTERVALS.map(iv => {
                           const supported = supportedIntervals.includes(iv)
                           const active = (effectiveInterval ?? supportedIntervals[0]) === iv
-                          // Options that need several sequential fetches get a
-                          // clock glyph, so it's clear up front which ones take
-                          // a moment and show a progress ring.
-                          const slow = supported && !isDatasetMode && chunkCount(iv, range) > 1
+                          // Describe what picking this option will ACTUALLY do.
+                          // An interval too fine to reach across the range gets
+                          // substituted, so it resolves to a single fast request
+                          // -- flagging that with a "several parts" clock would
+                          // promise a progress ring that never appears.
+                          const { interval: optIv, fellBackFrom: optFellBack } = isDatasetMode
+                            ? { interval: iv, fellBackFrom: undefined }
+                            : resolveInterval(iv, range)
+                          const slow = supported && !isDatasetMode && isLongPull(optIv, range)
+                          const substituted = supported && !isDatasetMode && !!optFellBack
                           return (
                             <button
                               key={iv}
                               disabled={!supported}
                               onClick={() => { setIntervalOverride(iv); setIntervalOpen(false) }}
-                              title={slow ? `${iv} over ${range} is fetched in ${chunkCount(iv, range)} parts` : undefined}
+                              title={
+                                substituted ? `${iv} can't reach across ${range} — charts ${optIv}`
+                                : slow ? `${iv} over ${range} is fetched in ${chunkCount(optIv!, range)} parts`
+                                : undefined
+                              }
                               className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded text-left transition-colors ${
                                 !supported
                                   ? 'text-gray-600 cursor-not-allowed'
@@ -669,6 +679,14 @@ export function StockChart({
                             >
                               {iv}
                               {!supported && <span className="text-[9px] text-gray-600 ml-auto">n/a</span>}
+                              {/* Say up front that this one gets substituted,
+                                  rather than letting it look like a plain pick
+                                  that quietly charts something else. */}
+                              {substituted && (
+                                <span className={`text-[9px] ml-auto ${active ? 'text-blue-200' : 'text-gray-500'}`}>
+                                  →{optIv}
+                                </span>
+                              )}
                               {slow && (
                                 <svg className={`w-3 h-3 ml-auto ${active ? 'text-blue-200' : 'text-gray-500'}`}
                                   fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

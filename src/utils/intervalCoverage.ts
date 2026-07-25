@@ -18,40 +18,10 @@ const RANGE_DAYS: Record<Range, number> = {
   '1M': 31, '3M': 92, '6M': 183, YTD: 365, '1Y': 366, '5Y': 1826, MAX: 7300,
 }
 
-/** Coarse → fine ordering, used to walk to the next viable interval. */
-const FINE_TO_COARSE: Interval[] = ['1m', '1h', '1d', '1w', '1mo']
-
-/** A little slack when deciding "does this interval cover that range?".
- *  1-minute data reaches 30 days and the 1M range is nominally 31 -- treating
- *  that as "doesn't cover" would downgrade a whole month of minute bars to
- *  hourly over a single day's shortfall, which is not what anyone means by it. */
-const COVERAGE_TOLERANCE = 0.9
-
-/** Can `interval` reach back far enough to cover `range` (within tolerance)? */
-export function covers(interval: Interval, range: Range): boolean {
-  const max = INTERVAL_MAX_DAYS[interval]
-  if (max == null) return true // daily and coarser are unlimited
-  return max >= RANGE_DAYS[range] * COVERAGE_TOLERANCE
-}
-
-/** The finest interval that actually covers `range` end-to-end. */
-export function finestIntervalFor(range: Range): Interval {
-  return FINE_TO_COARSE.find(iv => covers(iv, range)) ?? '1mo'
-}
-
-/** Resolve a requested interval against a range.
- *
- *  If the request can't reach across the whole range, fall back to the finest
- *  interval that can, and report what we did so the UI can say so rather than
- *  silently swapping it. */
-export function resolveInterval(
-  requested: Interval | undefined,
-  range: Range,
-): { interval: Interval | undefined; fellBackFrom?: Interval } {
-  if (!requested) return { interval: undefined }
-  if (covers(requested, range)) return { interval: requested }
-  return { interval: finestIntervalFor(range), fellBackFrom: requested }
-}
+/** A requested interval is never substituted for a coarser one: picking 1m
+ *  charts 1m, even on MAX, showing however far back that data actually exists
+ *  (the fetch reports where it had to stop, and the UI says so). The limits
+ *  above are only used to size the work, not to override the choice. */
 
 /** How many upstream requests a (range, interval) pull will take. */
 export function chunkCount(interval: Interval, range: Range): number {

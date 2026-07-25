@@ -7,7 +7,7 @@ import { DatasetTimeScrubber } from './DatasetTimeScrubber'
 import { ChunkProgress } from './ChunkProgress'
 import { useStockData } from '../../hooks/useStockData'
 import { useHistoryJob } from '../../hooks/useHistoryJob'
-import { resolveInterval, isLongPull, chunkCount } from '../../utils/intervalCoverage'
+import { isLongPull, chunkCount } from '../../utils/intervalCoverage'
 import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
@@ -22,10 +22,10 @@ const EMPTY_STRATEGY_DATA: StrategyChartData = { lines: [], signals: [], logs: [
 const ALL_INTERVALS: Interval[] = ['1s', '1m', '1h', '1d', '1w', '1mo']
 
 // Which intervals are offered for each range (first entry = that range's
-// default). Fine intervals are offered on the long ranges too: they either pull
-// in several chunks behind a progress ring, or -- where the provider simply
-// doesn't retain data that fine that far back -- fall back to the finest
-// interval that does cover the range, with a note saying so.
+// default). Fine intervals are offered on the long ranges too and are charted
+// as picked -- never swapped for something coarser. Where that takes several
+// sequential fetches it runs behind a progress ring, and where the data simply
+// doesn't go back as far as the range asks, the header says where it stops.
 const RANGE_INTERVALS: Record<string, Interval[]> = {
   '30M': ['1m'],
   '1H':  ['1m'],
@@ -177,21 +177,18 @@ export function StockChart({
     onRangeChange(r)
   }
 
-  // A fine interval can't always reach across a long range (the provider caps
-  // how far back 1m/1h go). Fall back to the finest interval that does cover
-  // it, and remember what was asked for so the UI can say why it changed.
-  const { interval: coveredInterval, fellBackFrom } = isDatasetMode
-    ? { interval: dataInterval, fellBackFrom: undefined }
-    : resolveInterval(dataInterval, range)
-
+  // The requested interval is charted as-is -- never swapped for a coarser one.
+  // Picking 1m on MAX charts 1m over however far back that data exists; the
+  // fetch reports where it had to stop and the header says so.
+  //
   // Fetches needing several sequential upstream requests run as a tracked job
   // with a progress ring; everything else stays on the plain single-request
   // path. A custom date window keeps its own existing fetch path.
-  const longPull = !isDatasetMode && !isLive && !cwin && isLongPull(coveredInterval, range)
-  const job = useHistoryJob(liveTicker, range, coveredInterval, longPull)
+  const longPull = !isDatasetMode && !isLive && !cwin && isLongPull(dataInterval, range)
+  const job = useHistoryJob(liveTicker, range, dataInterval, longPull)
 
   const { data, loading, error } = useStockData(
-    longPull ? '' : liveTicker, range, coveredInterval, winStart, winEnd,
+    longPull ? '' : liveTicker, range, dataInterval, winStart, winEnd,
   )
   const { ticks, connected } = useLiveTicks(liveTicker, isLive && !isDatasetMode)
 
@@ -218,7 +215,7 @@ export function StockChart({
   // and could disagree with the chunked bars we actually charted, so indicators
   // are computed from those exact bars instead (same approach as Lab datasets).
   const liveIndicators = useIndicators(
-    longPull ? '' : liveTicker, range, studies, coveredInterval, winStart, winEnd,
+    longPull ? '' : liveTicker, range, studies, dataInterval, winStart, winEnd,
   )
   const [jobIndicators, setJobIndicators] = useState<Record<string, { time: string[]; values: (number | null)[] }>>({})
   useEffect(() => {
@@ -238,7 +235,7 @@ export function StockChart({
     () => selectedIds.filter(id => id.startsWith('custom:')).map(id => id.slice('custom:'.length)),
     [selectedIds],
   )
-  const customSeries = useCustomSeries(liveTicker, range, customSlugs, coveredInterval, winStart, winEnd)
+  const customSeries = useCustomSeries(liveTicker, range, customSlugs, dataInterval, winStart, winEnd)
 
   // Lab Platform: resample the dataset's FULL stored bars to the current
   // display interval (native or coarser), compute indicators over that FULL
@@ -306,7 +303,7 @@ export function StockChart({
   // strategy), so it stays in sync with the metrics panel. In dataset mode the
   // overlay instead comes from the selected backtest run (converted below).
   const strategySlug = selectedStrategy?.source === 'workspace' ? selectedStrategy.slug : null
-  const liveStrategyData = useStrategyChart(liveTicker, range, strategySlug, coveredInterval, winStart, winEnd)
+  const liveStrategyData = useStrategyChart(liveTicker, range, strategySlug, dataInterval, winStart, winEnd)
   const strategyData = isDatasetMode
     ? (datasetBacktest ? backtestToChartData(datasetBacktest) : EMPTY_STRATEGY_DATA)
     : liveStrategyData
@@ -388,7 +385,7 @@ export function StockChart({
   // strategy toggles, replay).
   const fitKey = isDatasetMode
     ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
-    : `${ticker}:${range}:${coveredInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
+    : `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
 
   // (Re)start replay when the window changes (including switching datasets)
   // or replay is toggled on.
@@ -463,7 +460,7 @@ export function StockChart({
       return (
         <ChunkProgress
           progress={job.progress} done={job.done} total={job.total}
-          label={`Fetching ${coveredInterval} bars for ${range}…`}
+          label={`Fetching ${dataInterval} bars for ${range}…`}
           onCancel={job.cancel}
         />
       )
@@ -522,18 +519,15 @@ export function StockChart({
               <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
               <span className={connected ? 'text-green-400' : 'text-gray-500'}>{connected ? 'LIVE' : 'connecting'}</span>
             </span>
-          ) : (fellBackFrom || job.effectiveStart) && (
-            // Say plainly when the data shown isn't quite what was asked for:
-            // either the interval was too fine to reach across this range, or
-            // it reached as far back as the provider keeps it and no further.
+          ) : job.effectiveStart && (
+            // The requested interval is always charted; it just can't always
+            // reach as far back as the range asks, so say where it stops.
             <span className="flex items-center gap-1 text-[11px] text-gray-500" title="Upstream data-retention limit">
               <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" strokeWidth={2} />
                 <path strokeLinecap="round" strokeWidth={2} d="M12 8h.01M11 12h1v4h1" />
               </svg>
-              {fellBackFrom
-                ? `${fellBackFrom} doesn't reach across ${range} — showing ${coveredInterval}`
-                : `${coveredInterval} data only goes back to ${new Date(job.effectiveStart!).toLocaleDateString()}`}
+              {`${dataInterval} data only goes back to ${new Date(job.effectiveStart).toLocaleDateString()}`}
             </span>
           )}
         </div>
@@ -634,13 +628,9 @@ export function StockChart({
                 <div className="relative">
                   <button
                     onClick={() => setIntervalOpen(o => !o)}
-                    title={fellBackFrom ? `${fellBackFrom} can't reach across ${range}; charting ${coveredInterval}` : undefined}
                     className="px-2.5 py-1.5 text-xs rounded border border-border text-gray-400 hover:bg-gray-700 active:bg-gray-700 transition-colors"
                   >
-                    {/* On a fallback, show both what was picked and what's
-                        actually charted -- showing only the pick would label the
-                        chart with an interval it isn't drawing. */}
-                    {fellBackFrom ? `${fellBackFrom}→${coveredInterval}` : (effectiveInterval ?? supportedIntervals[0])} ▾
+                    {effectiveInterval ?? supportedIntervals[0]} ▾
                   </button>
                   {intervalOpen && (
                     <>
@@ -649,26 +639,16 @@ export function StockChart({
                         {ALL_INTERVALS.map(iv => {
                           const supported = supportedIntervals.includes(iv)
                           const active = (effectiveInterval ?? supportedIntervals[0]) === iv
-                          // Describe what picking this option will ACTUALLY do.
-                          // An interval too fine to reach across the range gets
-                          // substituted, so it resolves to a single fast request
-                          // -- flagging that with a "several parts" clock would
-                          // promise a progress ring that never appears.
-                          const { interval: optIv, fellBackFrom: optFellBack } = isDatasetMode
-                            ? { interval: iv, fellBackFrom: undefined }
-                            : resolveInterval(iv, range)
-                          const slow = supported && !isDatasetMode && isLongPull(optIv, range)
-                          const substituted = supported && !isDatasetMode && !!optFellBack
+                          // Options needing several sequential fetches get a
+                          // clock, so it's clear which ones run behind a
+                          // progress ring before you pick them.
+                          const slow = supported && !isDatasetMode && isLongPull(iv, range)
                           return (
                             <button
                               key={iv}
                               disabled={!supported}
                               onClick={() => { setIntervalOverride(iv); setIntervalOpen(false) }}
-                              title={
-                                substituted ? `${iv} can't reach across ${range} — charts ${optIv}`
-                                : slow ? `${iv} over ${range} is fetched in ${chunkCount(optIv!, range)} parts`
-                                : undefined
-                              }
+                              title={slow ? `${iv} over ${range} is fetched in ${chunkCount(iv, range)} parts` : undefined}
                               className={`flex items-center gap-1.5 w-full px-2 py-1.5 rounded text-left transition-colors ${
                                 !supported
                                   ? 'text-gray-600 cursor-not-allowed'
@@ -679,14 +659,6 @@ export function StockChart({
                             >
                               {iv}
                               {!supported && <span className="text-[9px] text-gray-600 ml-auto">n/a</span>}
-                              {/* Say up front that this one gets substituted,
-                                  rather than letting it look like a plain pick
-                                  that quietly charts something else. */}
-                              {substituted && (
-                                <span className={`text-[9px] ml-auto ${active ? 'text-blue-200' : 'text-gray-500'}`}>
-                                  →{optIv}
-                                </span>
-                              )}
                               {slow && (
                                 <svg className={`w-3 h-3 ml-auto ${active ? 'text-blue-200' : 'text-gray-500'}`}
                                   fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

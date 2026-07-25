@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createHistoryJob, getHistoryJob, cancelHistoryJob, type HistoryJob } from '../api/stocks'
 import type { OHLCBar, Range, Interval } from '../types'
 
-const POLL_MS = 700
+// Short enough that a multi-chunk pull visibly counts up rather than snapping
+// from 0% straight to done — most chunks land well inside a second.
+const POLL_MS = 250
 
 export interface HistoryJobState {
   bars: OHLCBar[]

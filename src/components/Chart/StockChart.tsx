@@ -332,12 +332,18 @@ export function StockChart({
   const visibleStrategyData = useMemo(() => {
     const lines = strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name))
     if (!isDatasetMode || focusWindowBars.length === 0) return { ...strategyData, lines }
-    const start = focusWindowBars[0].timestamp
-    const end = focusWindowBars[focusWindowBars.length - 1].timestamp
+    // Compare instants, not raw strings: bars carry a local UTC offset while
+    // strategy signals come back in UTC, and those two orderings disagree as
+    // text -- which silently hid Buy/Sell markers on the window's last day.
+    const start = new Date(focusWindowBars[0].timestamp).getTime()
+    const end = new Date(focusWindowBars[focusWindowBars.length - 1].timestamp).getTime()
     return {
       ...strategyData,
       lines: lines.map(ln => windowSeries(ln, focusWindowBars)),
-      signals: strategyData.signals.filter(s => s.time >= start && s.time <= end),
+      signals: strategyData.signals.filter(s => {
+        const t = new Date(s.time).getTime()
+        return t >= start && t <= end
+      }),
     }
   }, [strategyData, hiddenStrategyLines, isDatasetMode, focusWindowBars])
 

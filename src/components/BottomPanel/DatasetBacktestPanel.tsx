@@ -38,8 +38,14 @@ export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props
     else if (s.type === 'sell' && lastBuy != null) { pnl = s.price - lastBuy; lastBuy = null }
     return { key: i, time: s.time, type: s.type, price: s.price, pnl }
   })
+  // Compare instants, never the raw strings: dataset bars carry a local UTC
+  // offset ("...15:59:00-04:00") while backtest signals come back in UTC
+  // ("...19:15:00+00:00"). Those are ordered differently as text than in time,
+  // so string comparison silently dropped the final day's trades even with the
+  // window at MAX.
+  const ms = (t: string) => new Date(t).getTime()
   const rows = windowStart && windowEnd
-    ? allRows.filter(r => r.time >= windowStart && r.time <= windowEnd)
+    ? allRows.filter(r => ms(r.time) >= ms(windowStart) && ms(r.time) <= ms(windowEnd))
     : allRows
   const sum = (rs: typeof allRows) => {
     let t = 0, n = 0

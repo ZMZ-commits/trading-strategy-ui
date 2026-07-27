@@ -41,9 +41,18 @@ export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props
   const rows = windowStart && windowEnd
     ? allRows.filter(r => r.time >= windowStart && r.time <= windowEnd)
     : allRows
-  let total = 0
-  let trades = 0
-  for (const r of rows) { if (r.pnl != null) { total += r.pnl; trades++ } }
+  const sum = (rs: typeof allRows) => {
+    let t = 0, n = 0
+    for (const r of rs) { if (r.pnl != null) { t += r.pnl; n++ } }
+    return { total: t, trades: n }
+  }
+  const { total, trades } = sum(rows)
+  // The Strategies list reports the whole RUN's P&L, while this panel follows
+  // the chart's window. When a window hides some trades the two figures differ
+  // -- which reads as a contradiction unless we say which is which, so show the
+  // run total alongside whenever they diverge.
+  const runStats = sum(allRows)
+  const windowed = rows.length !== allRows.length
 
   return (
     <div className="flex-1 flex flex-col p-4 overflow-hidden">
@@ -89,7 +98,19 @@ export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props
       </div>
       <div className="border-t border-border pt-2 mt-2 flex items-center justify-between flex-shrink-0">
         <span className="text-xs text-gray-500">
-          Total P&amp;L <span className="text-gray-600">· {trades} trade{trades === 1 ? '' : 's'} · per share</span>
+          {windowed ? 'Window P&L' : 'Total P&L'}
+          <span className="text-gray-600"> · {trades} trade{trades === 1 ? '' : 's'} · per share</span>
+          {/* Say plainly why this disagrees with the figure in the Strategies
+              list, which always covers the whole run. */}
+          {windowed && (
+            <span className="text-gray-600">
+              {' · full run '}
+              <span className={runStats.total >= 0 ? 'text-green-500/80' : 'text-red-500/80'}>
+                {runStats.total >= 0 ? '+' : ''}${runStats.total.toFixed(2)}
+              </span>
+              {` over ${runStats.trades}`}
+            </span>
+          )}
         </span>
         <span className={`text-sm font-mono font-semibold ${total >= 0 ? 'text-green-400' : 'text-red-400'}`}>
           {total >= 0 ? '+' : ''}${total.toFixed(2)}

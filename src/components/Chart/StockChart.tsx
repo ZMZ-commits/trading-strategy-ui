@@ -596,9 +596,6 @@ export function StockChart({
             Legend
           </button>
 
-            </div>
-          )}
-
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
           {!isLive && !noDatasetSelected && (
             <div className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap lg:gap-2">

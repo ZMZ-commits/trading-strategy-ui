@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { LabTopPanel } from './LabTopPanel'
 import { StockChart } from '../Chart/StockChart'
 import { BottomPanel } from '../BottomPanel/BottomPanel'
-import { saveLabelMarks, type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark } from '../../api/datasets'
+import { saveLabelMarks, getLabelSet, type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark } from '../../api/datasets'
 import type { Range } from '../../types'
 
 interface Props {
@@ -41,6 +41,21 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
   const openLabelSet = useCallback((set: LabelSet | null) => {
     setLabelSet(set)
     setLabelMarks(set?.marks ?? [])
+    // The list row may be a stale snapshot (it isn't polled). Re-read the set
+    // on open so the editor starts from what's actually stored -- otherwise a
+    // later save would flush stale marks over newer ones.
+    if (set) {
+      getLabelSet(set.dataset_id, set.id)
+        .then(fresh => {
+          setLabelSet(cur => (cur?.id === fresh.id ? fresh : cur))
+          setLabelMarks(cur => {
+            // Don't clobber edits made while the fetch was in flight.
+            const sameSet = set.id
+            return cur.length === (set.marks?.length ?? 0) && sameSet === fresh.id ? fresh.marks : cur
+          })
+        })
+        .catch(() => {})
+    }
   }, [])
 
   const handleMarksChange = useCallback((marks: LabelMark[]) => {

@@ -135,6 +135,9 @@ export const createLabelSet = (datasetId: string, name?: string) =>
 export const listLabelSets = (datasetId: string) =>
   req<{ labels: LabelSet[] }>(`/datasets/${datasetId}/labels`).then(d => d.labels)
 
+export const getLabelSet = (datasetId: string, labelId: string) =>
+  req<LabelSet>(`/datasets/${datasetId}/labels/${labelId}`)
+
 export const saveLabelMarks = (datasetId: string, labelId: string, marks: LabelMark[], name?: string) =>
   req<LabelSet>(`/datasets/${datasetId}/labels/${labelId}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },

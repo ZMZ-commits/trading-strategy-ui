@@ -33,6 +33,12 @@ interface Props {
     lineValue: number | null
     series: { label: string; color: string; value: number | null }[]
   }) => void
+  /** Hand-placed buy/sell marks, drawn like strategy signals but in their own
+   *  layer so they can be toggled and edited independently. */
+  labels?: { time: string; type: 'buy' | 'sell' }[]
+  /** Fired when the chart is clicked while labelling is armed. Reports the bar
+   *  the click landed on, so a mark always snaps to a real bar. */
+  onBarClick?: (bar: { timestamp: string; close: number }) => void
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -73,7 +79,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -88,6 +94,12 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   // once at mount) always calls the current one.
   const readoutRef = useRef(onReadout)
   readoutRef.current = onReadout
+  // Same trick for the click handler and the bar list: the subscription is
+  // bound once at mount, so it reads both through refs.
+  const clickRef = useRef(onBarClick)
+  clickRef.current = onBarClick
+  const barsRef = useRef<OHLCBar[]>(data)
+  barsRef.current = data
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function emitReadout(param?: any) {
@@ -125,6 +137,20 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     })
     chart.current = c
     c.subscribeCrosshairMove(p => emitReadout(p))
+    // Clicking reports the nearest bar rather than a raw coordinate, so a mark
+    // can never land between bars.
+    c.subscribeClick((p: any) => {
+      const cb = clickRef.current
+      if (!cb || p?.time == null) return
+      const bars = barsRef.current
+      let best: OHLCBar | null = null
+      let bestDelta = Infinity
+      for (const b of bars) {
+        const d = Math.abs(toTime(b.timestamp) - (p.time as number))
+        if (d < bestDelta) { bestDelta = d; best = b }
+      }
+      if (best) cb({ timestamp: best.timestamp, close: best.close })
+    })
     return () => {
       c.remove(); chart.current = null
       seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
@@ -304,6 +330,18 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
+    // Hand-placed labels: same vertical-marker treatment as strategy signals
+    // but brighter, so your own marks read as distinct from generated ones.
+    if (labels && labels.length && priceRef.current) {
+      const marks: VertMarker[] = labels.map(l => ({
+        time: toTime(l.time),
+        color: l.type === 'buy' ? '#f87171' : '#4ade80',
+        label: l.type === 'buy' ? '▲' : '▼',
+      }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -328,7 +366,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     }
     emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so
   // the chart gets its whole box.

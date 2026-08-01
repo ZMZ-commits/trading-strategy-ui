@@ -5,7 +5,8 @@ import { ResizeHandle } from '../common/ResizeHandle'
 import {
   createDataset, listDatasets, cancelDataset, deleteDataset,
   createBacktest, listBacktests, cancelBacktest, deleteBacktest,
-  type DatasetMeta, type BacktestMeta,
+  createLabelSet, listLabelSets, deleteLabelSet,
+  type DatasetMeta, type BacktestMeta, type LabelSet,
 } from '../../api/datasets'
 import { listItems } from '../../api/workspace'
 import type { Interval } from '../../types'
@@ -52,6 +53,11 @@ interface Props {
   onSelectDataset: (d: DatasetMeta | null) => void
   activeBacktestId: string | null
   onSelectBacktest: (b: BacktestMeta | null) => void
+  /** Label sets share the Strategies column via a tab -- both are named
+   *  artifacts scoped to the selected dataset that draw marks on the chart. */
+  activeLabelSetId: string | null
+  onOpenLabelSet: (s: LabelSet | null) => void
+  labelMarkCount: number
 }
 
 /** Lab Platform's top expansion (mirrors TopPanel's collapsible/resizable
@@ -60,6 +66,7 @@ interface Props {
  *  of the cramped right Navigator. */
 export function LabTopPanel({
   isMobile = false, defaultTicker, activeDatasetId, onSelectDataset, activeBacktestId, onSelectBacktest,
+  activeLabelSetId, onOpenLabelSet, labelMarkCount,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown: onVResize } = useResizable(220, 52, 'down', () => setCollapsed(true))
@@ -70,6 +77,9 @@ export function LabTopPanel({
   const [strategies, setStrategies] = useState<string[]>([])
   const [backtests, setBacktests] = useState<BacktestMeta[]>([])
   const [strategySlug, setStrategySlug] = useState('')
+  const [rightTab, setRightTab] = useState<'strategies' | 'labels'>('strategies')
+  const [labelSets, setLabelSets] = useState<LabelSet[]>([])
+  const [newLabelName, setNewLabelName] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState('')
@@ -87,6 +97,24 @@ export function LabTopPanel({
   }, [refreshDatasets])
 
   useEffect(() => { listItems().then(d => setStrategies(d.strategies)).catch(() => {}) }, [])
+
+  const refreshLabels = useCallback(() => {
+    if (!activeDatasetId) { setLabelSets([]); return }
+    listLabelSets(activeDatasetId).then(setLabelSets).catch(() => {})
+  }, [activeDatasetId])
+  useEffect(() => { refreshLabels() }, [refreshLabels])
+
+  const addLabelSet = async () => {
+    if (!activeDatasetId) return
+    try {
+      const set = await createLabelSet(activeDatasetId, newLabelName.trim() || undefined)
+      setNewLabelName('')
+      refreshLabels()
+      onOpenLabelSet(set)   // open it straight away -- you made it to use it
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create label set')
+    }
+  }
 
   const refreshBacktests = useCallback(() => {
     if (!activeDatasetId) { setBacktests([]); return }
@@ -261,11 +289,99 @@ export function LabTopPanel({
     </div>
   )
 
-  // ── Strategies column (for the active dataset) ──
+  // ── Labels tab: named sets of hand-marked buy/sell points ──
+  const labelsBody = !activeDataset ? (
+    <p className="px-3 py-2 text-[11px] text-gray-600">Select a ready dataset to label it</p>
+  ) : (
+    <>
+      <div className="p-2 flex items-center gap-1.5 border-b border-border/50 flex-shrink-0">
+        <input
+          value={newLabelName}
+          onChange={e => setNewLabelName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') addLabelSet() }}
+          placeholder="New label set…"
+          className="flex-1 min-w-0 bg-surface border border-border rounded px-1.5 py-1 text-xs text-gray-200 placeholder-gray-600"
+        />
+        <button
+          onClick={addLabelSet}
+          className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium flex-shrink-0"
+        >
+          Add
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {labelSets.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-gray-600">
+            No label sets yet — add one, then use <span className="text-amber-500">Label</span> in the chart toolbar to mark bars
+          </p>
+        ) : (
+          <ul>
+            {labelSets.map(ls => {
+              const open = ls.id === activeLabelSetId
+              // The open set's count comes from the live editor, not the last
+              // saved copy, so it tracks as you click.
+              const count = open ? labelMarkCount : ls.marks.length
+              return (
+                <li key={ls.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenLabelSet(open ? null : ls)}
+                    className={`w-full flex items-center justify-between gap-1.5 text-left px-3 py-1.5 transition-colors ${
+                      open ? 'bg-amber-500/15' : 'hover:bg-gray-700'
+                    }`}
+                  >
+                    <span className={`text-xs truncate ${open ? 'text-amber-300' : 'text-gray-300'}`}>{ls.name}</span>
+                    <span className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[10px] text-gray-600">{count} mark{count === 1 ? '' : 's'}</span>
+                      {open && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">editing</span>}
+                      <span
+                        role="button" tabIndex={-1}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (window.confirm(`Delete label set "${ls.name}"?`)) {
+                            if (open) onOpenLabelSet(null)
+                            deleteLabelSet(activeDataset.id, ls.id).then(refreshLabels)
+                          }
+                        }}
+                        className="text-[10px] text-gray-600 hover:text-red-400"
+                      >delete</span>
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+    </>
+  )
+
+  // ── Strategies / Labels column (for the active dataset) ──
+  // Tabbed rather than a fourth column: both are named artifacts scoped to the
+  // selected dataset that draw marks on the chart, and a fourth fixed column
+  // would squeeze the layout that already felt cramped.
   const strategiesColumn = (
     <div className="flex flex-col h-full overflow-hidden">
-      <SectionLabel text={activeDataset ? `Strategies — ${activeDataset.ticker}` : 'Strategies'} />
-      {!activeDataset ? (
+      <div className="flex items-center border-b border-border/50 flex-shrink-0 bg-surface/30">
+        {(['strategies', 'labels'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setRightTab(t)}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest transition-colors ${
+              rightTab === t
+                ? (t === 'labels' ? 'text-amber-400 border-b-2 border-amber-500' : 'text-blue-300 border-b-2 border-blue-500')
+                : 'text-gray-600 hover:text-gray-400'
+            }`}
+          >
+            {t}
+            {t === 'labels' && labelSets.length > 0 && <span className="ml-1 text-gray-600">{labelSets.length}</span>}
+          </button>
+        ))}
+        {activeDataset && (
+          <span className="ml-auto px-2.5 text-[9px] text-gray-600 truncate">{activeDataset.ticker}</span>
+        )}
+      </div>
+      {rightTab === 'labels' ? labelsBody : !activeDataset ? (
         <p className="px-3 py-2 text-[11px] text-gray-600">Select a ready dataset to run a strategy against it</p>
       ) : (
         <>

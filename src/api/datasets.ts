@@ -108,3 +108,38 @@ export function backtestToChartData(bt: BacktestMeta): StrategyChartData {
     pnl: bt.result.pnl,
   }
 }
+
+// ── Label sets (hand-marked buy/sell points) ─────────────────────────────
+
+export interface LabelMark {
+  time: string
+  type: 'buy' | 'sell'
+  price: number
+}
+
+export interface LabelSet {
+  id: string
+  dataset_id: string
+  name: string
+  created_at: string
+  updated_at: string
+  marks: LabelMark[]
+}
+
+export const createLabelSet = (datasetId: string, name?: string) =>
+  req<LabelSet>(`/datasets/${datasetId}/labels`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name || undefined }),
+  })
+
+export const listLabelSets = (datasetId: string) =>
+  req<{ labels: LabelSet[] }>(`/datasets/${datasetId}/labels`).then(d => d.labels)
+
+export const saveLabelMarks = (datasetId: string, labelId: string, marks: LabelMark[], name?: string) =>
+  req<LabelSet>(`/datasets/${datasetId}/labels/${labelId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ marks, name }),
+  })
+
+export const deleteLabelSet = (datasetId: string, labelId: string) =>
+  req<void>(`/datasets/${datasetId}/labels/${labelId}`, { method: 'DELETE' })

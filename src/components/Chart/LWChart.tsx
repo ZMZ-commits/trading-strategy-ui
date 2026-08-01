@@ -25,6 +25,14 @@ interface Props {
    *  chart re-fits (shows end-to-end) whenever this changes; it otherwise
    *  preserves the user's zoom/pan (e.g. toggling an indicator or strategy). */
   fitKey: string
+  /** Reports crosshair values upward. The readout used to be an overlay drawn
+   *  inside this component; it is now rendered outside (Market Insight panel
+   *  and the floating window), so the chart area stays clear. */
+  onReadout?: (v: {
+    ohlc: { open: number; high: number; low: number; close: number } | null
+    lineValue: number | null
+    series: { label: string; color: string; value: number | null }[]
+  }) => void
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -65,9 +73,8 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout }: Props) {
   const container = useRef<HTMLDivElement>(null)
-  const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
@@ -77,24 +84,26 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   const labeled = useRef<{ s: ISeriesApi<any>; label: string; color: string }[]>([])
   const dataSig = useRef('')
 
-  const fmt = (n: number | undefined) => (n == null ? '' : n.toFixed(2))
+  // Keep the latest callback in a ref so the crosshair subscription (bound
+  // once at mount) always calls the current one.
+  const readoutRef = useRef(onReadout)
+  readoutRef.current = onReadout
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function renderLegend(param?: any) {
-    const el = legendRef.current
-    if (!el) return
-    const parts: string[] = []
+  function emitReadout(param?: any) {
+    const cb = readoutRef.current
+    if (!cb) return
     const pd = priceRef.current ? param?.seriesData?.get(priceRef.current) : undefined
-    if (pd) {
-      if (pd.close != null) parts.push(`<b style="color:#cbd5e1">O</b>${fmt(pd.open)} <b style="color:#cbd5e1">H</b>${fmt(pd.high)} <b style="color:#cbd5e1">L</b>${fmt(pd.low)} <b style="color:#cbd5e1">C</b>${fmt(pd.close)}`)
-      else if (pd.value != null) parts.push(`<span style="color:#cbd5e1">${fmt(pd.value)}</span>`)
-    }
-    for (const it of labeled.current) {
-      const d = param?.seriesData?.get(it.s)
-      const val = d && d.value != null ? ' ' + fmt(d.value) : ''
-      parts.push(`<span style="color:${it.color}">●</span><span style="color:#9ca3af"> ${it.label}${val}</span>`)
-    }
-    el.innerHTML = parts.join('&nbsp;&nbsp;&nbsp;')
+    cb({
+      ohlc: pd && pd.close != null
+        ? { open: pd.open, high: pd.high, low: pd.low, close: pd.close }
+        : null,
+      lineValue: pd && pd.close == null && pd.value != null ? pd.value : null,
+      series: labeled.current.map(it => {
+        const d = param?.seriesData?.get(it.s)
+        return { label: it.label, color: it.color, value: d && d.value != null ? d.value : null }
+      }),
+    })
   }
 
   // Create the chart once.
@@ -115,7 +124,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       crosshair: { mode: CrosshairMode.Normal },
     })
     chart.current = c
-    c.subscribeCrosshairMove(p => renderLegend(p))
+    c.subscribeCrosshairMove(p => emitReadout(p))
     return () => {
       c.remove(); chart.current = null
       seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
@@ -317,18 +326,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       // trusting whatever range the rebuilt series settled on.
       try { c.timeScale().setVisibleRange(savedRange) } catch { /* noop */ }
     }
-    renderLegend()
+    emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey])
 
-  return (
-    <div className="relative w-full h-full">
-      <div ref={container} className="w-full h-full" />
-      <div
-        ref={legendRef}
-        className="absolute top-1 left-2 text-[11px] leading-snug pointer-events-none rounded px-1.5 py-0.5"
-        style={{ background: 'rgba(13,17,23,0.6)' }}
-      />
-    </div>
-  )
+  // Nothing overlays the plot any more -- the readout is rendered outside, so
+  // the chart gets its whole box.
+  return <div ref={container} className="w-full h-full" />
 }

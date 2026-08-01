@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getDatasetBars, type DatasetMeta } from '../../api/datasets'
+import { ChartReadout } from '../Chart/ChartReadout'
 import type { OHLCBar } from '../../types'
 
 interface Props {
@@ -37,6 +38,11 @@ export function DatasetTable({ dataset, windowStart, windowEnd }: Props) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Lab has no Market Data card, so the chart's crosshair readout lands
+          here -- same role, same reason it left the chart overlay. */}
+      <div className="px-3 py-2 border-b border-border flex-shrink-0">
+        <ChartReadout compact />
+      </div>
       <div className="px-3 py-2 border-b border-border flex-shrink-0">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide truncate">
           {dataset.ticker}{' '}

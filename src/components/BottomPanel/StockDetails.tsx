@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getSnapshot } from '../../api/stocks'
+import { ChartReadout } from '../Chart/ChartReadout'
 import type { StockSnapshot } from '../../types'
 
 const fmt$ = (n: number | null | undefined) =>
@@ -39,17 +40,26 @@ export function StockDetails({ ticker }: { ticker: string }) {
     getSnapshot(ticker).then(setSnap).catch(() => {})
   }, [ticker])
 
+  // Show the crosshair readout even before the snapshot lands -- it comes from
+  // the chart, not the API, so there's no reason to make it wait.
   if (!snap) return (
-    <div className="h-full p-3 flex items-center">
-      <p className="text-xs text-gray-600 animate-pulse">Loading {ticker}…</p>
+    <div className="h-full p-2.5 overflow-y-auto scrollbar-thin">
+      <ChartReadout />
+      <p className="text-xs text-gray-600 animate-pulse mt-2">Loading {ticker}…</p>
     </div>
   )
 
   return (
     <div className="h-full p-2.5 overflow-y-auto scrollbar-thin">
-      <div className="flex items-baseline gap-2 mb-2.5">
+      <div className="flex items-baseline gap-2 mb-2">
         <span className="text-[9px] font-semibold text-gray-500 uppercase tracking-widest">Market Data</span>
         {snap.name && <span className="text-[10px] text-gray-700 truncate">{snap.name}</span>}
+      </div>
+
+      {/* The chart's crosshair readout used to be an overlay pinned inside the
+          plot; it lives here now so the chart stays clear. */}
+      <div className="mb-2.5 pb-2.5 border-b border-border/50">
+        <ChartReadout />
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">

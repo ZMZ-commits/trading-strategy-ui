@@ -100,6 +100,18 @@ export function LabTopPanel({
 
   const activeDataset = datasets.find(d => d.id === activeDatasetId) ?? null
 
+  // How far back each interval is actually retained upstream (mirrors the
+  // backend's MAX_LOOKBACK_DAYS). Daily and coarser are effectively unlimited.
+  const MAX_LOOKBACK_DAYS: Partial<Record<Interval, number>> = { '1m': 30, '1h': 730 }
+  const clampNotice = (() => {
+    const limit = MAX_LOOKBACK_DAYS[interval]
+    if (!limit || !start) return null
+    const daysBack = Math.round((Date.now() - new Date(start).getTime()) / 86400000)
+    if (daysBack <= limit) return null
+    const earliest = new Date(Date.now() - limit * 86400000).toISOString().slice(0, 10)
+    return `${interval} data is only kept for ~${limit} days — this will start at ${earliest}, not ${start}.`
+  })()
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!ticker.trim() || !start || !end) return
@@ -161,6 +173,10 @@ export function LabTopPanel({
         >
           {INTERVALS.map(iv => <option key={iv} value={iv}>{iv}</option>)}
         </select>
+        {/* Warn BEFORE the pull, not after: fine intervals are only retained
+            for so long upstream, so a longer request silently comes back
+            short. Better to say so while the dates can still be changed. */}
+        {clampNotice && <p className="text-[10px] text-amber-600/90 leading-snug">{clampNotice}</p>}
         <button
           type="submit" disabled={creating}
           className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium"
@@ -198,7 +214,22 @@ export function LabTopPanel({
                     <StatusBadge status={d.status} progress={d.progress} />
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[10px] text-gray-600 truncate">{d.ticker} · {d.start} → {d.end} · {d.interval}</span>
+                    {/* Show what the dataset ACTUALLY covers. Fine intervals
+                        can't reach as far back as asked (1m is kept for ~30
+                        days), and the pull clamps to what exists -- showing the
+                        requested start there made datasets look like they held
+                        months of minute data they never contained. */}
+                    <span className="text-[10px] text-gray-600 truncate">
+                      {d.ticker} ·{' '}
+                      {d.effective_start ? (
+                        <span title={`Requested ${d.start}; ${d.interval} data only goes back to ${d.effective_start.slice(0, 10)}`}>
+                          <span className="text-amber-600/80">{d.effective_start.slice(0, 10)}</span>
+                          {` → ${d.end} · ${d.interval} (clamped)`}
+                        </span>
+                      ) : (
+                        `${d.start} → ${d.end} · ${d.interval}`
+                      )}
+                    </span>
                     <span className="flex items-center gap-2 flex-shrink-0">
                       {d.row_count > 0 && <span className="text-[10px] text-gray-600">{d.row_count} rows</span>}
                       {(d.status === 'pending' || d.status === 'running') && (

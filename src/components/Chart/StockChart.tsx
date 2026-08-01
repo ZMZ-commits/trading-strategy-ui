@@ -271,11 +271,12 @@ export function StockChart({
     if (winStart && winEnd) return filterByDateRange(datasetBars, winStart, winEnd)
     return windowBars(datasetBars, range)
   }, [isDatasetMode, datasetBars, winStart, winEnd, range])
-  // The scrubber's own selection, when active, narrows indicators + the
-  // strategy overlay WITHOUT touching the candlesticks/volume (datasetDisplayBars/
-  // datasetRawWindow above stay exactly as the range tabs/custom picker left
-  // them) -- falls back to that same window when no scrub selection is active,
-  // so indicators/strategy match the candlesticks by default as before.
+  // The scrubber slides ONE window that everything shares -- candlesticks,
+  // volume, indicators, strategy, the row table and the transactions list.
+  // It previously moved only the indicator/strategy overlays, which meant
+  // dragging back past the range tab's cutoff drew indicators over a stretch
+  // with no candles under them. The range tab still sets the window (and
+  // resets the scrub); the scrubber just decides where that window sits.
   const focusWindowBars = useMemo(
     () => (scrubWindow ? filterByDateRange(datasetResampled, scrubWindow.start, scrubWindow.end) : datasetDisplayBars),
     [scrubWindow, datasetResampled, datasetDisplayBars],
@@ -331,12 +332,18 @@ export function StockChart({
   const visibleStrategyData = useMemo(() => {
     const lines = strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name))
     if (!isDatasetMode || focusWindowBars.length === 0) return { ...strategyData, lines }
-    const start = focusWindowBars[0].timestamp
-    const end = focusWindowBars[focusWindowBars.length - 1].timestamp
+    // Compare instants, not raw strings: bars carry a local UTC offset while
+    // strategy signals come back in UTC, and those two orderings disagree as
+    // text -- which silently hid Buy/Sell markers on the window's last day.
+    const start = new Date(focusWindowBars[0].timestamp).getTime()
+    const end = new Date(focusWindowBars[focusWindowBars.length - 1].timestamp).getTime()
     return {
       ...strategyData,
       lines: lines.map(ln => windowSeries(ln, focusWindowBars)),
-      signals: strategyData.signals.filter(s => s.time >= start && s.time <= end),
+      signals: strategyData.signals.filter(s => {
+        const t = new Date(s.time).getTime()
+        return t >= start && t <= end
+      }),
     }
   }, [strategyData, hiddenStrategyLines, isDatasetMode, focusWindowBars])
 
@@ -374,17 +381,21 @@ export function StockChart({
   const liveData: OHLCBar[] = ticks.map(t => ({
     timestamp: t.timestamp, open: t.price, high: t.price, low: t.price, close: t.price, volume: t.size,
   }))
-  const chartData = isDatasetMode ? datasetDisplayBars : (isLive ? liveData : (longPull ? job.bars : data))
+  // Dataset mode charts the shared window, so the candles always sit under the
+  // indicators/strategy drawn on top of them.
+  const chartData = isDatasetMode ? focusWindowBars : (isLive ? liveData : (longPull ? job.bars : data))
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
   const fullLen = chartData.length
 
   // Identifies the actual viewing window; the chart re-fits (end-to-end) only
-  // when this changes -- switching ticker/range/interval/custom dates, or
-  // switching datasets -- and preserves zoom for everything else (indicator/
-  // strategy toggles, replay).
+  // when this changes -- switching ticker/range/interval/custom dates,
+  // switching datasets, or sliding the scrubber -- and preserves zoom for
+  // everything else (indicator/strategy toggles, replay). The scrub bounds
+  // belong here: dragging swaps in a different slice of bars, which has to be
+  // fitted or it lands outside the retained view and shows as blank.
   const fitKey = isDatasetMode
-    ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
+    ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}:${scrubWindow?.start ?? ''}:${scrubWindow?.end ?? ''}`
     : `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
 
   // (Re)start replay when the window changes (including switching datasets)
@@ -733,11 +744,11 @@ export function StockChart({
         {body}
       </div>
 
-      {/* Dataset time scrubber — drag to focus indicators + the strategy
-          overlay on a sub-window; the candlesticks/volume never move (that's
-          still only range tabs/the custom date picker), but the row table
-          and transactions panel do follow the scrub focus, same as they
-          follow the candlestick window otherwise. */}
+      {/* Dataset time scrubber — the selection is the range tab's window, and
+          dragging it slides that window over the dataset. Everything moves
+          together: candlesticks, volume, indicators, strategy, the row table
+          and the transactions list. Drag the body to keep the window's size
+          (so "1D" stays a day wide) or an edge to widen/narrow it. */}
       {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}

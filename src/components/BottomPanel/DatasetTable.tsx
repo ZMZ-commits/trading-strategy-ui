@@ -26,8 +26,13 @@ export function DatasetTable({ dataset, windowStart, windowEnd }: Props) {
     return () => { cancelled = true }
   }, [dataset.id])
 
+  // Compare instants rather than raw strings -- the bounds and the bars happen
+  // to share a format today, but ISO strings with differing UTC offsets do not
+  // sort in time order, and that mismatch already caused a bug in the
+  // transactions panel. Parsing removes the trap entirely.
+  const ms = (t: string) => new Date(t).getTime()
   const displayBars = windowStart && windowEnd
-    ? bars.filter(b => b.timestamp >= windowStart && b.timestamp <= windowEnd)
+    ? bars.filter(b => ms(b.timestamp) >= ms(windowStart) && ms(b.timestamp) <= ms(windowEnd))
     : bars
 
   return (

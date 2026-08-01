@@ -34,6 +34,13 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
   // The open set's marks live here while you work: the chart edits them, the
   // panel lists them, and they're flushed to the server on a short debounce so
   // marking several bars in a row is one write rather than one per click.
+  // Which indicators are ticked on the chart -- carried here so an export can
+  // include exactly what you were looking at.
+  const [studies, setStudies] = useState<string[]>([])
+  const handleStudiesChange = useCallback((next: string[]) => {
+    setStudies(prev => (prev.join(',') === next.join(',') ? prev : next))
+  }, [])
+
   const [labelSet, setLabelSet] = useState<LabelSet | null>(null)
   const [labelMarks, setLabelMarks] = useState<LabelMark[]>([])
   const saveTimer = useRef<number | null>(null)
@@ -89,6 +96,9 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         activeLabelSetId={labelSet?.id ?? null}
         onOpenLabelSet={openLabelSet}
         labelMarkCount={labelMarks.length}
+        liveLabelMarks={labelMarks}
+        exportStudies={studies}
+        exportStrategy={backtest}
       />
       <StockChart
         isMobile={isMobile}
@@ -103,6 +113,7 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         labelMarks={labelSet ? labelMarks : undefined}
         onLabelMarksChange={labelSet ? handleMarksChange : undefined}
         labelSetName={labelSet?.name ?? null}
+        onStudiesChange={handleStudiesChange}
       />
       <BottomPanel
         isMobile={isMobile}

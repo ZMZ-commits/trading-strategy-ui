@@ -5,9 +5,10 @@ import { ResizeHandle } from '../common/ResizeHandle'
 import {
   createDataset, listDatasets, cancelDataset, deleteDataset,
   createBacktest, listBacktests, cancelBacktest, deleteBacktest,
-  createLabelSet, listLabelSets, deleteLabelSet,
-  type DatasetMeta, type BacktestMeta, type LabelSet,
+  createLabelSet, listLabelSets, deleteLabelSet, getDatasetBars, computeIndicators,
+  type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark,
 } from '../../api/datasets'
+import { exportLabelledDataset, type ExportFormat } from '../../utils/exportDataset'
 import { listItems } from '../../api/workspace'
 import type { Interval } from '../../types'
 
@@ -58,6 +59,14 @@ interface Props {
   activeLabelSetId: string | null
   onOpenLabelSet: (s: LabelSet | null) => void
   labelMarkCount: number
+  /** Unsaved edits to the open set, so an export reflects what's on screen
+   *  rather than the last debounced write. */
+  liveLabelMarks: LabelMark[]
+  /** Indicators currently ticked on the chart -- recomputed over the FULL
+   *  dataset at export time, not the windowed slice. */
+  exportStudies: string[]
+  /** Selected backtest, whose signals ride along in the export. */
+  exportStrategy: BacktestMeta | null
 }
 
 /** Lab Platform's top expansion (mirrors TopPanel's collapsible/resizable
@@ -67,6 +76,7 @@ interface Props {
 export function LabTopPanel({
   isMobile = false, defaultTicker, activeDatasetId, onSelectDataset, activeBacktestId, onSelectBacktest,
   activeLabelSetId, onOpenLabelSet, labelMarkCount,
+  liveLabelMarks, exportStudies, exportStrategy,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const { height, onDragHandleMouseDown: onVResize } = useResizable(220, 52, 'down', () => setCollapsed(true))
@@ -103,6 +113,38 @@ export function LabTopPanel({
     listLabelSets(activeDatasetId).then(setLabelSets).catch(() => {})
   }, [activeDatasetId])
   useEffect(() => { refreshLabels() }, [refreshLabels])
+
+  const [exportingId, setExportingId] = useState<string | null>(null)
+
+  /** Export the dataset with this set's labels attached.
+   *
+   *  Indicators are recomputed over the whole dataset rather than reused from
+   *  the chart: the chart holds a windowed slice for display, and an export
+   *  that silently stopped at the current zoom would be a trap. */
+  const runExport = async (set: LabelSet, format: ExportFormat) => {
+    if (!activeDataset) return
+    setExportingId(set.id)
+    try {
+      const bars = await getDatasetBars(activeDataset.id)
+      const indicators = exportStudies.length ? await computeIndicators(bars, exportStudies) : {}
+      const marks = set.id === activeLabelSetId ? liveLabelMarks : set.marks
+      const rows = exportLabelledDataset({
+        datasetName: activeDataset.name,
+        ticker: activeDataset.ticker,
+        interval: activeDataset.interval,
+        bars,
+        indicators,
+        labels: marks,
+        strategySignals: exportStrategy?.result?.signals,
+        strategyName: exportStrategy?.strategy_slug ?? null,
+      }, format, set.name)
+      if (!rows) setError('Nothing to export — the dataset has no bars')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Export failed')
+    } finally {
+      setExportingId(null)
+    }
+  }
 
   const addLabelSet = async () => {
     if (!activeDatasetId) return
@@ -343,6 +385,27 @@ export function LabTopPanel({
                     <span className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-[10px] text-gray-600">{count} mark{count === 1 ? '' : 's'}</span>
                       {open && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">editing</span>}
+                      {/* Export sits beside delete because what it produces is
+                          this labelled dataset -- the bars, the indicators that
+                          were on, the strategy's signals, and these marks. */}
+                      {exportingId === ls.id ? (
+                        <span className="text-[10px] text-gray-500">exporting…</span>
+                      ) : (
+                        <>
+                          <span
+                            role="button" tabIndex={-1}
+                            title="Export bars + indicators + strategy signals + these labels as CSV"
+                            onClick={e => { e.stopPropagation(); runExport(ls, 'csv') }}
+                            className="text-[10px] text-gray-600 hover:text-blue-400"
+                          >csv</span>
+                          <span
+                            role="button" tabIndex={-1}
+                            title="Same, as JSON"
+                            onClick={e => { e.stopPropagation(); runExport(ls, 'json') }}
+                            className="text-[10px] text-gray-600 hover:text-blue-400"
+                          >json</span>
+                        </>
+                      )}
                       <span
                         role="button" tabIndex={-1}
                         onClick={e => {

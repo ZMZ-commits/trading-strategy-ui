@@ -5,6 +5,8 @@ import { StockChart } from './components/Chart/StockChart'
 import { BottomPanel } from './components/BottomPanel/BottomPanel'
 import { LabPage } from './components/Lab/LabPage'
 import { CodeServerPanel } from './components/IDE/CodeServerPanel'
+import { FloatingLegend } from './components/Chart/FloatingLegend'
+import { ChartReadoutProvider } from './state/chartReadout'
 import { useIsMobile } from './hooks/useMediaQuery'
 import { usePersistentState } from './hooks/usePersistentState'
 import { getSnapshot } from './api/stocks'
@@ -88,6 +90,7 @@ export default function App() {
   }, [setWatchlist])
 
   return (
+    <ChartReadoutProvider>
     <div className="flex h-screen overflow-hidden bg-surface">
       {/* LEFT — Web IDE (code-server, desktop only) */}
       {!isMobile && <CodeServerPanel open={ideOpen} onToggle={() => setIdeOpen(o => !o)} />}
@@ -164,6 +167,10 @@ export default function App() {
         sidebarView={sidebarView}
         onSidebarViewChange={setSidebarView}
       />
+
+      {/* Top-most draggable readout; renders through a portal on <body>. */}
+      <FloatingLegend />
     </div>
+    </ChartReadoutProvider>
   )
 }

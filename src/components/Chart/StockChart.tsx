@@ -14,6 +14,7 @@ import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import { useStrategyChart } from '../../hooks/useStrategyChart'
 import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta } from '../../api/datasets'
 import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
+import { useChartReadout } from '../../state/chartReadout'
 import type { StrategyChartData } from '../../api/strategyChart'
 import type { Range, Interval, OHLCBar, Strategy } from '../../types'
 
@@ -104,6 +105,7 @@ export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
   onWindowChange, labMode = false,
 }: Props) {
+  const { setIdentity, setValues, floating, setFloating } = useChartReadout()
   const isDatasetMode = !!dataset
   const noDatasetSelected = labMode && !isDatasetMode
   const isLive = !isDatasetMode && !labMode && range === 'NOW'
@@ -441,6 +443,16 @@ export function StockChart({
   const replayCutoffTs = replaySlicing && displayData.length ? displayData[displayData.length - 1].timestamp : null
   useEffect(() => { onReplayCutoff?.(replayCutoffTs) }, [replayCutoffTs, onReplayCutoff])
 
+  // Publish chart identity for the readout consumers (Market Insight panel and
+  // the floating legend). Values come separately from LWChart's crosshair.
+  const readoutTicker = isDatasetMode ? dataset!.ticker : noDatasetSelected ? '' : ticker
+  const readoutMeta = isDatasetMode
+    ? `${dataset!.start} → ${dataset!.end} · ${dataset!.interval}${datasetBacktest ? ` · ${datasetBacktest.strategy_slug}` : ''}`
+    : (isLive ? 'live' : `${range}${dataInterval ? ` · ${dataInterval}` : ''}`)
+  useEffect(() => {
+    setIdentity({ ticker: readoutTicker, meta: readoutMeta, lastClose: latest ? latest.close : null })
+  }, [readoutTicker, readoutMeta, latest, setIdentity])
+
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
@@ -458,12 +470,12 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
-      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} />
+      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} onReadout={setValues} />
     }
     // Long pulls take several sequential upstream requests, so they get a
     // determinate ring rather than an indefinite "Loading…".
@@ -480,7 +492,7 @@ export function StockChart({
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -512,39 +524,48 @@ export function StockChart({
   }
 
   return (
-    <div className={`flex flex-col p-2 lg:p-4 bg-surface border-b border-border ${isMobile ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
-      <div className="flex flex-col gap-2 mb-2 lg:flex-row lg:items-center lg:justify-between lg:gap-2 lg:mb-3">
-        {/* Ticker + price (or dataset identity, in Lab mode) */}
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold text-gray-100">
-            {isDatasetMode ? dataset!.ticker : noDatasetSelected ? 'No dataset selected' : ticker}
-          </span>
-          {latest && <span className="text-lg text-gray-300">${latest.close.toFixed(2)}</span>}
-          {isDatasetMode ? (
-            <span className="text-xs text-gray-500">
-              {dataset!.start} → {dataset!.end} · {dataset!.interval}
-              {datasetBacktest && <span className="text-blue-400 ml-2">· {datasetBacktest.strategy_slug}</span>}
-            </span>
-          ) : isLive ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium">
+    // Edge-to-edge: no padding on the root, so the plot area gets the whole
+    // box. Identity/price/OHLC now live in the Market Insight panel and the
+    // floating legend instead of a header row above the chart.
+    <div className={`flex flex-col bg-surface border-b border-border ${isMobile ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
+      {/* ── Toolbar: every chart tool, in one thin strip under the top panel ── */}
+      <div className="flex-shrink-0 border-b border-border/60 bg-panel/40 px-2 py-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Live status / data-reach notice keeps a home here, since the
+              header row that used to carry it is gone. */}
+          {isLive && (
+            <span className="flex items-center gap-1.5 text-xs font-medium mr-1">
               <span className={`h-2 w-2 rounded-full ${connected ? 'bg-green-500 animate-pulse' : 'bg-gray-600'}`} />
               <span className={connected ? 'text-green-400' : 'text-gray-500'}>{connected ? 'LIVE' : 'connecting'}</span>
             </span>
-          ) : job.effectiveStart && (
-            // The requested interval is always charted; it just can't always
-            // reach as far back as the range asks, so say where it stops.
-            <span className="flex items-center gap-1 text-[11px] text-gray-500" title="Upstream data-retention limit">
+          )}
+          {!isLive && job.effectiveStart && (
+            <span className="flex items-center gap-1 text-[11px] text-gray-500 mr-1" title="Upstream data-retention limit">
               <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" strokeWidth={2} />
                 <path strokeLinecap="round" strokeWidth={2} d="M12 8h.01M11 12h1v4h1" />
               </svg>
-              {`${dataInterval} data only goes back to ${new Date(job.effectiveStart).toLocaleDateString()}`}
+              {`${dataInterval} only reaches ${new Date(job.effectiveStart).toLocaleDateString()}`}
             </span>
           )}
-        </div>
 
-        {/* Controls + range tabs */}
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
+          {/* Floating legend toggle -- always available, since the readout
+              exists in every mode. */}
+          <button
+            onClick={() => setFloating(!floating)}
+            title={floating ? 'Hide floating legend' : 'Pop the legend out as a floating window'}
+            className={`flex items-center gap-1 px-2 py-1 text-xs rounded border border-border transition-colors ${
+              floating ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-400 hover:bg-gray-700'
+            }`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3" y="5" width="13" height="10" rx="1.5" strokeWidth={2} />
+              <path strokeWidth={2} d="M8 19h13V9" />
+            </svg>
+            Legend
+          </button>
+
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
           {!isLive && !noDatasetSelected && (
             <div className="flex items-center gap-1.5 flex-wrap lg:flex-nowrap lg:gap-2">
               <div className="flex rounded overflow-hidden border border-border">
@@ -738,8 +759,10 @@ export function StockChart({
             <RangeTabs active={range} onChange={handleRangeChange} excludeNow={labMode} />
           </div>
         </div>
+        </div>
       </div>
 
+      {/* Chart fills everything left over -- no padding, no overlay. */}
       <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
       </div>

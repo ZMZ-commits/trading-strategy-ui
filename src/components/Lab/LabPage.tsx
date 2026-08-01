@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { LabTopPanel } from './LabTopPanel'
 import { StockChart } from '../Chart/StockChart'
 import { BottomPanel } from '../BottomPanel/BottomPanel'
-import type { DatasetMeta, BacktestMeta } from '../../api/datasets'
+import { saveLabelMarks, type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark } from '../../api/datasets'
 import type { Range } from '../../types'
 
 interface Props {
@@ -29,6 +29,32 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
   // reported up so the dataset row table and backtest transactions list
   // clamp to the exact same range-tab/custom-window cutoff as the chart.
   const [windowBounds, setWindowBounds] = useState<{ start: string | null; end: string | null }>({ start: null, end: null })
+
+  // ── Labelling ──
+  // The open set's marks live here while you work: the chart edits them, the
+  // panel lists them, and they're flushed to the server on a short debounce so
+  // marking several bars in a row is one write rather than one per click.
+  const [labelSet, setLabelSet] = useState<LabelSet | null>(null)
+  const [labelMarks, setLabelMarks] = useState<LabelMark[]>([])
+  const saveTimer = useRef<number | null>(null)
+
+  const openLabelSet = useCallback((set: LabelSet | null) => {
+    setLabelSet(set)
+    setLabelMarks(set?.marks ?? [])
+  }, [])
+
+  const handleMarksChange = useCallback((marks: LabelMark[]) => {
+    setLabelMarks(marks)
+    if (!labelSet) return
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(() => {
+      saveLabelMarks(labelSet.dataset_id, labelSet.id, marks).catch(() => {})
+    }, 600)
+  }, [labelSet])
+
+  // Switching dataset closes whatever set was open -- a set belongs to one
+  // dataset, so keeping it open would let you mark bars it doesn't contain.
+  useEffect(() => { setLabelSet(null); setLabelMarks([]) }, [dataset?.id])
   const handleWindowChange = useCallback((start: string | null, end: string | null) => {
     setWindowBounds(prev => (prev.start === start && prev.end === end) ? prev : { start, end })
   }, [])
@@ -45,6 +71,9 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         onSelectDataset={onSelectDataset}
         activeBacktestId={backtest?.id ?? null}
         onSelectBacktest={onSelectBacktest}
+        activeLabelSetId={labelSet?.id ?? null}
+        onOpenLabelSet={openLabelSet}
+        labelMarkCount={labelMarks.length}
       />
       <StockChart
         isMobile={isMobile}
@@ -56,6 +85,9 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
         datasetBacktest={backtest}
         onWindowChange={handleWindowChange}
         labMode
+        labelMarks={labelSet ? labelMarks : undefined}
+        onLabelMarksChange={labelSet ? handleMarksChange : undefined}
+        labelSetName={labelSet?.name ?? null}
       />
       <BottomPanel
         isMobile={isMobile}

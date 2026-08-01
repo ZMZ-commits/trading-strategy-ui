@@ -12,7 +12,7 @@ import { useLiveTicks } from '../../hooks/useLiveTicks'
 import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import { useStrategyChart } from '../../hooks/useStrategyChart'
-import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta } from '../../api/datasets'
+import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta, type LabelMark } from '../../api/datasets'
 import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
 import { useChartReadout } from '../../state/chartReadout'
 import type { StrategyChartData } from '../../api/strategyChart'
@@ -71,6 +71,13 @@ interface Props {
    *  into a blank Lab page. When set and `dataset` is null, the chart renders
    *  a clean empty state instead of ever fetching live data. */
   labMode?: boolean
+  /** Lab Platform: the label set currently open for editing, if any. When set,
+   *  the toolbar arms a Buy/Sell brush and clicking the chart adds/removes a
+   *  mark. Marks are held here and flushed upward, so the chart stays the one
+   *  place that knows how to turn a click into a bar. */
+  labelMarks?: LabelMark[]
+  onLabelMarksChange?: (marks: LabelMark[]) => void
+  labelSetName?: string | null
 }
 
 const OVERLAY_ITEMS = [
@@ -103,7 +110,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
-  onWindowChange, labMode = false,
+  onWindowChange, labMode = false, labelMarks, onLabelMarksChange, labelSetName,
 }: Props) {
   const { setIdentity, setValues, floating, setFloating } = useChartReadout()
   const isDatasetMode = !!dataset
@@ -453,6 +460,30 @@ export function StockChart({
     setIdentity({ ticker: readoutTicker, meta: readoutMeta, lastClose: latest ? latest.close : null })
   }, [readoutTicker, readoutMeta, latest, setIdentity])
 
+  // ── Labelling: arm a side, then click bars to mark them. ──
+  const [labelArmed, setLabelArmed] = useState(false)
+  const [labelSide, setLabelSide] = useState<'buy' | 'sell'>('buy')
+  const canLabel = isDatasetMode && !!onLabelMarksChange && !!labelSetName
+  // Leaving the label set (or the dataset) disarms, so clicks can't silently
+  // keep editing something no longer on screen.
+  useEffect(() => { if (!canLabel) setLabelArmed(false) }, [canLabel])
+
+  const handleBarClick = (bar: { timestamp: string; close: number }) => {
+    if (!labelArmed || !onLabelMarksChange) return
+    const current = labelMarks ?? []
+    const existing = current.findIndex(m => m.time === bar.timestamp)
+    if (existing >= 0) {
+      // Clicking a marked bar clears it -- same click, so it's undoable
+      // without hunting for a separate delete affordance.
+      onLabelMarksChange(current.filter((_, i) => i !== existing))
+      return
+    }
+    onLabelMarksChange(
+      [...current, { time: bar.timestamp, type: labelSide, price: bar.close }]
+        .sort((a, b) => a.time.localeCompare(b.time)),
+    )
+  }
+
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
@@ -470,7 +501,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
@@ -564,6 +595,44 @@ export function StockChart({
             </svg>
             Legend
           </button>
+
+          {/* Labelling — only meaningful once a label set is open, so the whole
+              group stays hidden until then rather than sitting there inert. */}
+          {canLabel && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setLabelArmed(a => !a)}
+                title={labelArmed ? 'Stop marking' : `Mark buy/sell points on "${labelSetName}"`}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+                  labelArmed
+                    ? 'bg-amber-500 text-gray-900 border-amber-500 font-medium'
+                    : 'border-border text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.2 3.8l5 5L8.5 20.5 3 21l.5-5.5z" />
+                </svg>
+                {labelArmed ? 'Marking' : 'Label'}
+              </button>
+              {labelArmed && (
+                <>
+                  <div className="flex rounded overflow-hidden border border-border">
+                    <button
+                      onClick={() => setLabelSide('buy')}
+                      className={`px-2 py-1 text-xs ${labelSide === 'buy' ? 'bg-red-500 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
+                    >Buy</button>
+                    <button
+                      onClick={() => setLabelSide('sell')}
+                      className={`px-2 py-1 text-xs ${labelSide === 'sell' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
+                    >Sell</button>
+                  </div>
+                  <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                    {(labelMarks ?? []).length} marks · click a bar to add, click it again to remove
+                  </span>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
           {!isLive && !noDatasetSelected && (

@@ -25,6 +25,20 @@ interface Props {
    *  chart re-fits (shows end-to-end) whenever this changes; it otherwise
    *  preserves the user's zoom/pan (e.g. toggling an indicator or strategy). */
   fitKey: string
+  /** Reports crosshair values upward. The readout used to be an overlay drawn
+   *  inside this component; it is now rendered outside (Market Insight panel
+   *  and the floating window), so the chart area stays clear. */
+  onReadout?: (v: {
+    ohlc: { open: number; high: number; low: number; close: number } | null
+    lineValue: number | null
+    series: { label: string; color: string; value: number | null }[]
+  }) => void
+  /** Hand-placed buy/sell marks, drawn like strategy signals but in their own
+   *  layer so they can be toggled and edited independently. */
+  labels?: { time: string; type: 'buy' | 'sell' }[]
+  /** Fired when the chart is clicked while labelling is armed. Reports the bar
+   *  the click landed on, so a mark always snaps to a real bar. */
+  onBarClick?: (bar: { timestamp: string; close: number }) => void
 }
 
 const toTime = (ts: string): UTCTimestamp => {
@@ -65,9 +79,8 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick }: Props) {
   const container = useRef<HTMLDivElement>(null)
-  const legendRef = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
@@ -77,24 +90,32 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   const labeled = useRef<{ s: ISeriesApi<any>; label: string; color: string }[]>([])
   const dataSig = useRef('')
 
-  const fmt = (n: number | undefined) => (n == null ? '' : n.toFixed(2))
+  // Keep the latest callback in a ref so the crosshair subscription (bound
+  // once at mount) always calls the current one.
+  const readoutRef = useRef(onReadout)
+  readoutRef.current = onReadout
+  // Same trick for the click handler and the bar list: the subscription is
+  // bound once at mount, so it reads both through refs.
+  const clickRef = useRef(onBarClick)
+  clickRef.current = onBarClick
+  const barsRef = useRef<OHLCBar[]>(data)
+  barsRef.current = data
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function renderLegend(param?: any) {
-    const el = legendRef.current
-    if (!el) return
-    const parts: string[] = []
+  function emitReadout(param?: any) {
+    const cb = readoutRef.current
+    if (!cb) return
     const pd = priceRef.current ? param?.seriesData?.get(priceRef.current) : undefined
-    if (pd) {
-      if (pd.close != null) parts.push(`<b style="color:#cbd5e1">O</b>${fmt(pd.open)} <b style="color:#cbd5e1">H</b>${fmt(pd.high)} <b style="color:#cbd5e1">L</b>${fmt(pd.low)} <b style="color:#cbd5e1">C</b>${fmt(pd.close)}`)
-      else if (pd.value != null) parts.push(`<span style="color:#cbd5e1">${fmt(pd.value)}</span>`)
-    }
-    for (const it of labeled.current) {
-      const d = param?.seriesData?.get(it.s)
-      const val = d && d.value != null ? ' ' + fmt(d.value) : ''
-      parts.push(`<span style="color:${it.color}">●</span><span style="color:#9ca3af"> ${it.label}${val}</span>`)
-    }
-    el.innerHTML = parts.join('&nbsp;&nbsp;&nbsp;')
+    cb({
+      ohlc: pd && pd.close != null
+        ? { open: pd.open, high: pd.high, low: pd.low, close: pd.close }
+        : null,
+      lineValue: pd && pd.close == null && pd.value != null ? pd.value : null,
+      series: labeled.current.map(it => {
+        const d = param?.seriesData?.get(it.s)
+        return { label: it.label, color: it.color, value: d && d.value != null ? d.value : null }
+      }),
+    })
   }
 
   // Create the chart once.
@@ -115,7 +136,21 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       crosshair: { mode: CrosshairMode.Normal },
     })
     chart.current = c
-    c.subscribeCrosshairMove(p => renderLegend(p))
+    c.subscribeCrosshairMove(p => emitReadout(p))
+    // Clicking reports the nearest bar rather than a raw coordinate, so a mark
+    // can never land between bars.
+    c.subscribeClick((p: any) => {
+      const cb = clickRef.current
+      if (!cb || p?.time == null) return
+      const bars = barsRef.current
+      let best: OHLCBar | null = null
+      let bestDelta = Infinity
+      for (const b of bars) {
+        const d = Math.abs(toTime(b.timestamp) - (p.time as number))
+        if (d < bestDelta) { bestDelta = d; best = b }
+      }
+      if (best) cb({ timestamp: best.timestamp, close: best.close })
+    })
     return () => {
       c.remove(); chart.current = null
       seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
@@ -295,6 +330,18 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
+    // Hand-placed labels: same vertical-marker treatment as strategy signals
+    // but brighter, so your own marks read as distinct from generated ones.
+    if (labels && labels.length && priceRef.current) {
+      const marks: VertMarker[] = labels.map(l => ({
+        time: toTime(l.time),
+        color: l.type === 'buy' ? '#f87171' : '#4ade80',
+        label: l.type === 'buy' ? '▲' : '▼',
+      }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -317,18 +364,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       // trusting whatever range the rebuilt series settled on.
       try { c.timeScale().setVisibleRange(savedRange) } catch { /* noop */ }
     }
-    renderLegend()
+    emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
 
-  return (
-    <div className="relative w-full h-full">
-      <div ref={container} className="w-full h-full" />
-      <div
-        ref={legendRef}
-        className="absolute top-1 left-2 text-[11px] leading-snug pointer-events-none rounded px-1.5 py-0.5"
-        style={{ background: 'rgba(13,17,23,0.6)' }}
-      />
-    </div>
-  )
+  // Nothing overlays the plot any more -- the readout is rendered outside, so
+  // the chart gets its whole box.
+  return <div ref={container} className="w-full h-full" />
 }

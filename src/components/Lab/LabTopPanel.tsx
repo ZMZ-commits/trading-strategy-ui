@@ -9,6 +9,7 @@ import {
   type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark,
 } from '../../api/datasets'
 import { exportLabelledDataset, type ExportFormat } from '../../utils/exportDataset'
+import { DownloadMenu } from './DownloadMenu'
 import { listItems } from '../../api/workspace'
 import type { Interval } from '../../types'
 
@@ -385,27 +386,16 @@ export function LabTopPanel({
                     <span className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-[10px] text-gray-600">{count} mark{count === 1 ? '' : 's'}</span>
                       {open && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">editing</span>}
-                      {/* Export sits beside delete because what it produces is
-                          this labelled dataset -- the bars, the indicators that
-                          were on, the strategy's signals, and these marks. */}
-                      {exportingId === ls.id ? (
-                        <span className="text-[10px] text-gray-500">exporting…</span>
-                      ) : (
-                        <>
-                          <span
-                            role="button" tabIndex={-1}
-                            title="Export bars + indicators + strategy signals + these labels as CSV"
-                            onClick={e => { e.stopPropagation(); runExport(ls, 'csv') }}
-                            className="text-[10px] text-gray-600 hover:text-blue-400"
-                          >csv</span>
-                          <span
-                            role="button" tabIndex={-1}
-                            title="Same, as JSON"
-                            onClick={e => { e.stopPropagation(); runExport(ls, 'json') }}
-                            className="text-[10px] text-gray-600 hover:text-blue-400"
-                          >json</span>
-                        </>
-                      )}
+                      {/* Download sits beside delete because what it produces
+                          is this labelled dataset -- the bars, the indicators
+                          that were on, the strategy's signals, and these
+                          marks. The format choice lives in its menu rather
+                          than as two actions competing for row width. */}
+                      <DownloadMenu
+                        title={ls.name}
+                        busy={exportingId === ls.id}
+                        onPick={f => runExport(ls, f)}
+                      />
                       <span
                         role="button" tabIndex={-1}
                         onClick={e => {

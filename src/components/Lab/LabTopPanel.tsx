@@ -315,6 +315,15 @@ export function LabTopPanel({
             No label sets yet — add one, then use <span className="text-amber-500">Label</span> in the chart toolbar to mark bars
           </p>
         ) : (
+          <>
+          {/* How-to sits here rather than in the toolbar: it's onboarding copy,
+              and a sentence of it in a toolbar shoves every control after it. */}
+          {activeLabelSetId && (
+            <p className="px-3 py-1.5 text-[10px] text-gray-600 border-b border-border/40">
+              Arm <span className="text-amber-500">Label</span> in the chart toolbar, pick Buy or Sell,
+              then click a bar to mark it — click it again to remove.
+            </p>
+          )}
           <ul>
             {labelSets.map(ls => {
               const open = ls.id === activeLabelSetId
@@ -351,6 +360,7 @@ export function LabTopPanel({
               )
             })}
           </ul>
+          </>
         )}
       </div>
     </>

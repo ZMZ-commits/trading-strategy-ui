@@ -78,6 +78,11 @@ interface Props {
   labelMarks?: LabelMark[]
   onLabelMarksChange?: (marks: LabelMark[]) => void
   labelSetName?: string | null
+  /** Reports which built-in indicator studies are currently ticked, so an
+   *  export can include exactly the indicators you were looking at. Only the
+   *  names travel -- the values are recomputed against the full dataset at
+   *  export time rather than the view's windowed slice. */
+  onStudiesChange?: (studies: string[]) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -110,7 +115,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
-  onWindowChange, labMode = false, labelMarks, onLabelMarksChange, labelSetName,
+  onWindowChange, labMode = false, labelMarks, onLabelMarksChange, labelSetName, onStudiesChange,
 }: Props) {
   const { setIdentity, setValues, floating, setFloating } = useChartReadout()
   const isDatasetMode = !!dataset
@@ -214,6 +219,14 @@ export function StockChart({
     }
     return [...set]
   }, [selectedIds])
+
+  const studiesKey = studies.join(',')
+  useEffect(() => {
+    onStudiesChange?.(studiesKey ? studiesKey.split(',') : [])
+    // Keyed on the joined string so an unchanged selection doesn't re-fire on
+    // every render (the array identity changes, its contents don't).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studiesKey, onStudiesChange])
 
   const oscillators = useMemo(
     () => OSC_ITEMS.filter(o => selectedIds.includes(o.id)).map(o => o.id),

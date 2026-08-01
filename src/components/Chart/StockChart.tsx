@@ -596,41 +596,6 @@ export function StockChart({
             Legend
           </button>
 
-          {/* Labelling — only meaningful once a label set is open, so the whole
-              group stays hidden until then rather than sitting there inert. */}
-          {canLabel && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setLabelArmed(a => !a)}
-                title={labelArmed ? 'Stop marking' : `Mark buy/sell points on "${labelSetName}"`}
-                className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
-                  labelArmed
-                    ? 'bg-amber-500 text-gray-900 border-amber-500 font-medium'
-                    : 'border-border text-gray-400 hover:bg-gray-700'
-                }`}
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.2 3.8l5 5L8.5 20.5 3 21l.5-5.5z" />
-                </svg>
-                {labelArmed ? 'Marking' : 'Label'}
-              </button>
-              {labelArmed && (
-                <>
-                  <div className="flex rounded overflow-hidden border border-border">
-                    <button
-                      onClick={() => setLabelSide('buy')}
-                      className={`px-2 py-1 text-xs ${labelSide === 'buy' ? 'bg-red-500 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
-                    >Buy</button>
-                    <button
-                      onClick={() => setLabelSide('sell')}
-                      className={`px-2 py-1 text-xs ${labelSide === 'sell' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
-                    >Sell</button>
-                  </div>
-                  <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                    {(labelMarks ?? []).length} marks · click a bar to add, click it again to remove
-                  </span>
-                </>
-              )}
             </div>
           )}
 
@@ -828,6 +793,56 @@ export function StockChart({
             <RangeTabs active={range} onChange={handleRangeChange} excludeNow={labMode} />
           </div>
         </div>
+
+          {/* Labelling lives in a fixed-width slot at the END of the row, and
+              is reserved for the whole time a set is open -- not just while
+              armed. Anything inserted mid-row pushes every control after it,
+              and arming/disarming mid-session is exactly when a jump is most
+              disruptive. Reserving on open instead means the only layout change
+              happens at a deliberate mode switch, and never while you work. */}
+          {canLabel && (
+            <div className="flex items-center gap-1 w-[178px] flex-shrink-0 overflow-hidden">
+              <button
+                onClick={() => setLabelArmed(a => !a)}
+                title={labelArmed ? 'Stop marking' : `Mark buy/sell points on "${labelSetName}"`}
+                className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors flex-shrink-0 ${
+                  labelArmed
+                    ? 'bg-amber-500 text-gray-900 border-amber-500 font-medium'
+                    : 'border-border text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.2 3.8l5 5L8.5 20.5 3 21l.5-5.5z" />
+                </svg>
+                {labelArmed ? 'Marking' : 'Label'}
+              </button>
+              {labelArmed ? (
+                <>
+                  <div className="flex rounded overflow-hidden border border-border flex-shrink-0">
+                    <button
+                      onClick={() => setLabelSide('buy')}
+                      title="Mark buys"
+                      className={`px-2 py-1 text-xs ${labelSide === 'buy' ? 'bg-red-500 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
+                    >Buy</button>
+                    <button
+                      onClick={() => setLabelSide('sell')}
+                      title="Mark sells"
+                      className={`px-2 py-1 text-xs ${labelSide === 'sell' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
+                    >Sell</button>
+                  </div>
+                  <span className="text-[10px] text-gray-500 tabular-nums flex-shrink-0">
+                    {(labelMarks ?? []).length}
+                  </span>
+                </>
+              ) : (
+                // Idle: name only, hard-capped so a long one clips instead of
+                // stretching the slot and shoving the toolbar around.
+                <span className="text-[10px] text-gray-600 truncate min-w-0" title={labelSetName ?? undefined}>
+                  {labelSetName}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

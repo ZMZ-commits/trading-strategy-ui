@@ -107,7 +107,15 @@ export function LabTopPanel({
     return () => window.clearInterval(id)
   }, [refreshDatasets])
 
-  useEffect(() => { listItems().then(d => setStrategies(d.strategies)).catch(() => {}) }, [])
+  // Polled, not fetched once: a strategy published while the tab is open would
+  // otherwise stay invisible until a manual reload, which reads as "the
+  // strategy isn't there" rather than "the list is stale".
+  useEffect(() => {
+    const load = () => { listItems().then(d => setStrategies(d.strategies)).catch(() => {}) }
+    load()
+    const id = window.setInterval(load, POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
 
   const refreshLabels = useCallback(() => {
     if (!activeDatasetId) { setLabelSets([]); return }

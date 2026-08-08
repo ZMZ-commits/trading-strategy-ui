@@ -146,3 +146,26 @@ export const saveLabelMarks = (datasetId: string, labelId: string, marks: LabelM
 
 export const deleteLabelSet = (datasetId: string, labelId: string) =>
   req<void>(`/datasets/${datasetId}/labels/${labelId}`, { method: 'DELETE' })
+
+// ── Drawings (hand-drawn chart annotations) ──────────────────────────────
+
+export interface DrawingRecord {
+  id: string
+  kind: 'box' | 'hline' | 'arrow-up' | 'arrow-down' | 'text'
+  /** ISO timestamps + prices, so shapes survive zoom/interval changes. */
+  t1: string
+  p1: number
+  t2?: string
+  p2?: number
+  text?: string
+  color?: string
+}
+
+export const getDrawings = (datasetId: string) =>
+  req<{ drawings: DrawingRecord[] }>(`/datasets/${datasetId}/drawings`).then(d => d.drawings)
+
+export const saveDrawings = (datasetId: string, drawings: DrawingRecord[]) =>
+  req<{ drawings: DrawingRecord[] }>(`/datasets/${datasetId}/drawings`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drawings }),
+  }).then(d => d.drawings)

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { RangeTabs } from './RangeTabs'
-import { LWChart } from './LWChart'
+import { LWChart, toTime } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
 import { DateRangePicker } from './DateRangePicker'
 import { DatasetTimeScrubber } from './DatasetTimeScrubber'
@@ -16,6 +16,8 @@ import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMet
 import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
 import { useChartReadout } from '../../state/chartReadout'
 import type { StrategyChartData } from '../../api/strategyChart'
+import type { DrawingShape, DrawingKind } from './drawingsPrimitive'
+import type { DrawingRecord } from '../../api/datasets'
 import type { Range, Interval, OHLCBar, Strategy } from '../../types'
 
 const EMPTY_STRATEGY_DATA: StrategyChartData = { lines: [], signals: [], logs: [], requires: [], pnl: 0 }
@@ -83,6 +85,11 @@ interface Props {
    *  names travel -- the values are recomputed against the full dataset at
    *  export time rather than the view's windowed slice. */
   onStudiesChange?: (studies: string[]) => void
+  /** Lab Platform: hand-drawn annotations for the active dataset, plus a way
+   *  to add to them. Held by the page (which persists them) so the chart only
+   *  has to turn clicks into shapes. */
+  drawings?: DrawingRecord[]
+  onDrawingsChange?: (d: DrawingRecord[]) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -117,6 +124,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
   onWindowChange, labMode = false, labelMarks, onLabelMarksChange, labelSetName, onStudiesChange,
+  drawings, onDrawingsChange,
 }: Props) {
   const { setIdentity, setValues, floating, setFloating } = useChartReadout()
   const isDatasetMode = !!dataset
@@ -498,6 +506,60 @@ export function StockChart({
     )
   }
 
+  // ── Drawing: arm a tool, then click the chart to place a shape. ──
+  const [drawTool, setDrawTool] = useState<DrawingKind | null>(null)
+  // A box needs two clicks; the first is parked here until the second lands.
+  const [pendingCorner, setPendingCorner] = useState<{ timestamp: string; price: number } | null>(null)
+  const canDraw = isDatasetMode && !!onDrawingsChange
+  useEffect(() => { if (!canDraw) { setDrawTool(null); setPendingCorner(null) } }, [canDraw])
+  // Arming one tool disarms the other -- a click can only mean one thing.
+  useEffect(() => { if (drawTool) setLabelArmed(false) }, [drawTool])
+  useEffect(() => { if (labelArmed) { setDrawTool(null); setPendingCorner(null) } }, [labelArmed])
+
+  const handleChartPoint = (pt: { timestamp: string; price: number }) => {
+    if (!drawTool || !onDrawingsChange) return
+    const list = drawings ?? []
+    const id = Math.random().toString(36).slice(2, 10)
+
+    if (drawTool === 'box') {
+      if (!pendingCorner) { setPendingCorner(pt); return }
+      onDrawingsChange([...list, {
+        id, kind: 'box',
+        t1: pendingCorner.timestamp, p1: pendingCorner.price,
+        t2: pt.timestamp, p2: pt.price,
+      }])
+      setPendingCorner(null)
+      return
+    }
+
+    const text = drawTool === 'text'
+      ? (window.prompt('Text for this tag:') ?? '').trim()
+      : undefined
+    if (drawTool === 'text' && !text) return   // cancelled or empty -- place nothing
+    onDrawingsChange([...list, { id, kind: drawTool, t1: pt.timestamp, p1: pt.price, text }])
+  }
+
+  const undoDrawing = () => {
+    if (!onDrawingsChange || !drawings?.length) return
+    onDrawingsChange(drawings.slice(0, -1))
+  }
+  const clearDrawings = () => {
+    if (!onDrawingsChange || !drawings?.length) return
+    if (window.confirm(`Remove all ${drawings.length} drawings from this dataset?`)) onDrawingsChange([])
+  }
+
+  // Convert stored records (ISO time) into the primitive's chart coordinates.
+  const drawingShapes: DrawingShape[] = useMemo(() => (drawings ?? []).map(d => ({
+    id: d.id,
+    kind: d.kind,
+    t1: toTime(d.t1),
+    p1: d.p1,
+    t2: d.t2 != null ? toTime(d.t2) : undefined,
+    p2: d.p2,
+    text: d.text,
+    color: d.color,
+  })), [drawings])
+
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
@@ -515,7 +577,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} drawings={drawingShapes} onChartPoint={handleChartPoint} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
@@ -804,6 +866,52 @@ export function StockChart({
             <RangeTabs active={range} onChange={handleRangeChange} excludeNow={labMode} />
           </div>
         </div>
+
+          {/* Drawing tools: a fixed slot like labelling, reserved whenever a
+              dataset is open so arming a tool never shifts the toolbar. */}
+          {canDraw && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {([
+                ['box', 'Box', 'M4 6h16v12H4z'],
+                ['hline', 'Level', 'M3 12h18'],
+                ['arrow-up', 'Up', 'M12 5l6 9H6z'],
+                ['arrow-down', 'Down', 'M12 19l-6-9h12z'],
+                ['text', 'Text', 'M5 6h14M12 6v12'],
+              ] as const).map(([kind, title, d]) => {
+                const on = drawTool === kind
+                return (
+                  <button
+                    key={kind}
+                    onClick={() => setDrawTool(on ? null : kind)}
+                    title={`${title}${kind === 'box' ? ' — click two corners' : ''}`}
+                    aria-label={title}
+                    className={`p-1 rounded border transition-colors ${
+                      on ? 'bg-amber-500 text-gray-900 border-amber-500' : 'border-border text-gray-400 hover:bg-gray-700'
+                    }`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill={kind.startsWith('arrow') ? 'currentColor' : 'none'}
+                      stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeWidth={2} d={d} />
+                    </svg>
+                  </button>
+                )
+              })}
+              {/* Undo/clear only appear once there's something to act on, and
+                  sit after the tools so the tool row itself never shifts. */}
+              {!!drawings?.length && (
+                <>
+                  <button onClick={undoDrawing} title="Undo last drawing"
+                    className="px-1.5 py-1 text-[10px] rounded border border-border text-gray-400 hover:bg-gray-700">undo</button>
+                  <button onClick={clearDrawings} title="Remove all drawings"
+                    className="px-1.5 py-1 text-[10px] rounded border border-border text-gray-500 hover:text-red-400 hover:bg-gray-700">clear</button>
+                  <span className="text-[10px] text-gray-600 tabular-nums">{drawings.length}</span>
+                </>
+              )}
+              {pendingCorner && (
+                <span className="text-[10px] text-amber-500 whitespace-nowrap">click 2nd corner</span>
+              )}
+            </div>
+          )}
 
           {/* Labelling lives in a fixed-width slot at the END of the row, and
               is reserved for the whole time a set is open -- not just while

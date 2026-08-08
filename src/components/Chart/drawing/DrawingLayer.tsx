@@ -59,7 +59,16 @@ export function DrawingLayer({
   const measure = () => {
     const parentH = wrapRef.current?.parentElement?.clientHeight ?? 0
     let h = 0
-    if (api) {
+
+    // Prefer the DOM: lightweight-charts lays panes out as table rows, and the
+    // first row IS the price pane, so its height always matches what is really
+    // on screen. chart.panes()[0].getHeight() has been seen reporting a stale
+    // pre-layout 2px, which collapsed this layer and ate every click.
+    const table = wrapRef.current?.parentElement?.querySelector('table')
+    const firstRow = table?.querySelector('tr')
+    if (firstRow) h = firstRow.getBoundingClientRect().height
+
+    if ((!Number.isFinite(h) || h < 40) && api) {
       try {
         const panes = api.chart.panes()
         if (panes && panes.length) h = panes[0].getHeight()

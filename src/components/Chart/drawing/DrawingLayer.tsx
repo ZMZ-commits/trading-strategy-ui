@@ -43,6 +43,23 @@ export function DrawingLayer({
   const drag = useRef<DragMode | null>(null)
   const [, force] = useState(0)
 
+  /** Height of the PRICE pane only.
+   *
+   *  The chart container also holds the volume overlay, any oscillator panes
+   *  and the time axis. priceToCoordinate/coordinateToPrice are relative to
+   *  the price pane, so letting the layer span the full container made clicks
+   *  below that pane extrapolate into nonsense prices -- a click visibly above
+   *  another could come back as a LOWER price. Constraining the layer to the
+   *  price pane keeps pixels and prices in the same space. */
+  const paneHeight = (): number => {
+    if (!api) return 0
+    try {
+      const panes = api.chart.panes()
+      if (panes && panes.length) return panes[0].getHeight()
+    } catch { /* fall through */ }
+    return wrapRef.current?.clientHeight ?? 0
+  }
+
   // ── coordinate helpers ──
   const toX = (iso: string): number | null => {
     if (!api) return null
@@ -98,7 +115,8 @@ export function DrawingLayer({
     const cv = canvasRef.current, wrap = wrapRef.current
     if (!cv || !wrap || !api) return
     const dpr = window.devicePixelRatio || 1
-    const w = wrap.clientWidth, h = wrap.clientHeight
+    const w = wrap.clientWidth
+    const h = paneHeight() || wrap.clientHeight
     cv.width = w * dpr; cv.height = h * dpr
     cv.style.width = `${w}px`; cv.style.height = `${h}px`
     const ctx = cv.getContext('2d')!
@@ -292,8 +310,13 @@ export function DrawingLayer({
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-0"
-      style={{ pointerEvents: interactive ? 'auto' : 'none', cursor: tool === 'cursor' ? 'default' : 'crosshair' }}
+      className="absolute left-0 right-0 top-0"
+      style={{
+        // Only as tall as the price pane -- see paneHeight().
+        height: paneHeight() || undefined,
+        pointerEvents: interactive ? 'auto' : 'none',
+        cursor: tool === 'cursor' ? 'default' : 'crosshair',
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

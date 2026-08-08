@@ -76,6 +76,10 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'bb_upper', color: 'rgba(96,165,250,0.45)', label: '' },
   { key: 'bb_mid', color: '#60a5fa', label: 'Bollinger', dashed: true },
   { key: 'bb_lower', color: 'rgba(96,165,250,0.45)', label: '' },
+  // Donchian: only the upper band carries the legend label, so the pair reads
+  // as one channel rather than two unrelated lines.
+  { key: 'donchian_upper', color: '#22d3ee', label: 'Donchian' },
+  { key: 'donchian_lower', color: '#22d3ee', label: '' },
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 

@@ -4,6 +4,9 @@ import { LWChart, toTime } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
 import { DateRangePicker } from './DateRangePicker'
 import { DatasetTimeScrubber } from './DatasetTimeScrubber'
+import { DrawingLayer } from './drawing/DrawingLayer'
+import { DrawingToolbar } from './drawing/DrawingToolbar'
+import type { Shape, Tool } from './drawing/types'
 import { ChunkProgress } from './ChunkProgress'
 import { useStockData } from '../../hooks/useStockData'
 import { useHistoryJob } from '../../hooks/useHistoryJob'
@@ -16,8 +19,6 @@ import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMet
 import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
 import { useChartReadout } from '../../state/chartReadout'
 import type { StrategyChartData } from '../../api/strategyChart'
-import type { DrawingShape, DrawingKind } from './drawingsPrimitive'
-import type { DrawingRecord } from '../../api/datasets'
 import type { Range, Interval, OHLCBar, Strategy } from '../../types'
 
 const EMPTY_STRATEGY_DATA: StrategyChartData = { lines: [], signals: [], logs: [], requires: [], pnl: 0 }
@@ -88,8 +89,8 @@ interface Props {
   /** Lab Platform: hand-drawn annotations for the active dataset, plus a way
    *  to add to them. Held by the page (which persists them) so the chart only
    *  has to turn clicks into shapes. */
-  drawings?: DrawingRecord[]
-  onDrawingsChange?: (d: DrawingRecord[]) => void
+  drawings?: Shape[]
+  onDrawingsChange?: (d: Shape[]) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -506,59 +507,35 @@ export function StockChart({
     )
   }
 
-  // ── Drawing: arm a tool, then click the chart to place a shape. ──
-  const [drawTool, setDrawTool] = useState<DrawingKind | null>(null)
-  // A box needs two clicks; the first is parked here until the second lands.
-  const [pendingCorner, setPendingCorner] = useState<{ timestamp: string; price: number } | null>(null)
+  // ── Drawing: a full interaction layer over the chart (select, drag,
+  //    handles, magnet), not just click-to-place. ──
+  const [drawTool, setDrawTool] = useState<Tool>('cursor')
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
+  const [magnet, setMagnet] = useState(true)
+  const [drawColor, setDrawColor] = useState('#f59e0b')
+  const [chartApi, setChartApi] = useState<{ chart: any; series: any } | null>(null)
   const canDraw = isDatasetMode && !!onDrawingsChange
-  useEffect(() => { if (!canDraw) { setDrawTool(null); setPendingCorner(null) } }, [canDraw])
-  // Arming one tool disarms the other -- a click can only mean one thing.
-  useEffect(() => { if (drawTool) setLabelArmed(false) }, [drawTool])
-  useEffect(() => { if (labelArmed) { setDrawTool(null); setPendingCorner(null) } }, [labelArmed])
+  useEffect(() => { if (!canDraw) { setDrawTool('cursor'); setSelectedShapeId(null) } }, [canDraw])
+  // A click can only mean one thing, so arming one mode disarms the other.
+  useEffect(() => { if (drawTool !== 'cursor') setLabelArmed(false) }, [drawTool])
+  useEffect(() => { if (labelArmed) setDrawTool('cursor') }, [labelArmed])
 
-  const handleChartPoint = (pt: { timestamp: string; price: number }) => {
-    if (!drawTool || !onDrawingsChange) return
-    const list = drawings ?? []
-    const id = Math.random().toString(36).slice(2, 10)
-
-    if (drawTool === 'box') {
-      if (!pendingCorner) { setPendingCorner(pt); return }
-      onDrawingsChange([...list, {
-        id, kind: 'box',
-        t1: pendingCorner.timestamp, p1: pendingCorner.price,
-        t2: pt.timestamp, p2: pt.price,
-      }])
-      setPendingCorner(null)
-      return
+  const selectedShape = (drawings ?? []).find(sh => sh.id === selectedShapeId) ?? null
+  const updateSelected = (patch: Partial<Shape>) => {
+    if (!onDrawingsChange || !selectedShapeId) return
+    onDrawingsChange((drawings ?? []).map(sh => (sh.id === selectedShapeId ? { ...sh, ...patch } : sh)))
+  }
+  const deleteSelected = () => {
+    if (!onDrawingsChange || !selectedShapeId) return
+    onDrawingsChange((drawings ?? []).filter(sh => sh.id !== selectedShapeId))
+    setSelectedShapeId(null)
+  }
+  const clearAllDrawings = () => {
+    if (!onDrawingsChange || !drawings?.length) return
+    if (window.confirm(`Remove all ${drawings.length} drawings from this dataset?`)) {
+      onDrawingsChange([]); setSelectedShapeId(null)
     }
-
-    const text = drawTool === 'text'
-      ? (window.prompt('Text for this tag:') ?? '').trim()
-      : undefined
-    if (drawTool === 'text' && !text) return   // cancelled or empty -- place nothing
-    onDrawingsChange([...list, { id, kind: drawTool, t1: pt.timestamp, p1: pt.price, text }])
   }
-
-  const undoDrawing = () => {
-    if (!onDrawingsChange || !drawings?.length) return
-    onDrawingsChange(drawings.slice(0, -1))
-  }
-  const clearDrawings = () => {
-    if (!onDrawingsChange || !drawings?.length) return
-    if (window.confirm(`Remove all ${drawings.length} drawings from this dataset?`)) onDrawingsChange([])
-  }
-
-  // Convert stored records (ISO time) into the primitive's chart coordinates.
-  const drawingShapes: DrawingShape[] = useMemo(() => (drawings ?? []).map(d => ({
-    id: d.id,
-    kind: d.kind,
-    t1: toTime(d.t1),
-    p1: d.p1,
-    t2: d.t2 != null ? toTime(d.t2) : undefined,
-    p2: d.p2,
-    text: d.text,
-    color: d.color,
-  })), [drawings])
 
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
@@ -577,7 +554,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} drawings={drawingShapes} onChartPoint={handleChartPoint} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
@@ -867,52 +844,6 @@ export function StockChart({
           </div>
         </div>
 
-          {/* Drawing tools: a fixed slot like labelling, reserved whenever a
-              dataset is open so arming a tool never shifts the toolbar. */}
-          {canDraw && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {([
-                ['box', 'Box', 'M4 6h16v12H4z'],
-                ['hline', 'Level', 'M3 12h18'],
-                ['arrow-up', 'Up', 'M12 5l6 9H6z'],
-                ['arrow-down', 'Down', 'M12 19l-6-9h12z'],
-                ['text', 'Text', 'M5 6h14M12 6v12'],
-              ] as const).map(([kind, title, d]) => {
-                const on = drawTool === kind
-                return (
-                  <button
-                    key={kind}
-                    onClick={() => setDrawTool(on ? null : kind)}
-                    title={`${title}${kind === 'box' ? ' — click two corners' : ''}`}
-                    aria-label={title}
-                    className={`p-1 rounded border transition-colors ${
-                      on ? 'bg-amber-500 text-gray-900 border-amber-500' : 'border-border text-gray-400 hover:bg-gray-700'
-                    }`}
-                  >
-                    <svg className="w-3.5 h-3.5" fill={kind.startsWith('arrow') ? 'currentColor' : 'none'}
-                      stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeWidth={2} d={d} />
-                    </svg>
-                  </button>
-                )
-              })}
-              {/* Undo/clear only appear once there's something to act on, and
-                  sit after the tools so the tool row itself never shifts. */}
-              {!!drawings?.length && (
-                <>
-                  <button onClick={undoDrawing} title="Undo last drawing"
-                    className="px-1.5 py-1 text-[10px] rounded border border-border text-gray-400 hover:bg-gray-700">undo</button>
-                  <button onClick={clearDrawings} title="Remove all drawings"
-                    className="px-1.5 py-1 text-[10px] rounded border border-border text-gray-500 hover:text-red-400 hover:bg-gray-700">clear</button>
-                  <span className="text-[10px] text-gray-600 tabular-nums">{drawings.length}</span>
-                </>
-              )}
-              {pendingCorner && (
-                <span className="text-[10px] text-amber-500 whitespace-nowrap">click 2nd corner</span>
-              )}
-            </div>
-          )}
-
           {/* Labelling lives in a fixed-width slot at the END of the row, and
               is reserved for the whole time a set is open -- not just while
               armed. Anything inserted mid-row pushes every control after it,
@@ -965,9 +896,40 @@ export function StockChart({
         </div>
       </div>
 
-      {/* Chart fills everything left over -- no padding, no overlay. */}
+      {/* Chart fills everything left over. The drawing rail and interaction
+          layer sit on top of it, not inside it, so the chart keeps its own
+          pan/zoom while shapes get real pointer handling. */}
       <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
+        {canDraw && chartData.length > 0 && (
+          <>
+            <DrawingLayer
+              api={chartApi}
+              bars={chartData}
+              shapes={drawings ?? []}
+              onChange={onDrawingsChange!}
+              tool={drawTool}
+              onToolFinished={() => setDrawTool('cursor')}
+              selectedId={selectedShapeId}
+              onSelect={setSelectedShapeId}
+              magnet={magnet}
+              color={drawColor}
+            />
+            <DrawingToolbar
+              tool={drawTool}
+              onTool={setDrawTool}
+              magnet={magnet}
+              onMagnet={setMagnet}
+              color={drawColor}
+              onColor={setDrawColor}
+              selected={selectedShape}
+              onUpdateSelected={updateSelected}
+              onDeleteSelected={deleteSelected}
+              count={drawings?.length ?? 0}
+              onClearAll={clearAllDrawings}
+            />
+          </>
+        )}
       </div>
 
       {/* Dataset time scrubber — the selection is the range tab's window, and

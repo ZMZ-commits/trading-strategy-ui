@@ -149,16 +149,16 @@ export const deleteLabelSet = (datasetId: string, labelId: string) =>
 
 // ── Drawings (hand-drawn chart annotations) ──────────────────────────────
 
+/** Stored shape: a list of {t, p} anchors plus optional styling. One schema
+ *  covers one-anchor levels, two-anchor lines and three-level position tools. */
 export interface DrawingRecord {
   id: string
-  kind: 'box' | 'hline' | 'arrow-up' | 'arrow-down' | 'text'
-  /** ISO timestamps + prices, so shapes survive zoom/interval changes. */
-  t1: string
-  p1: number
-  t2?: string
-  p2?: number
+  kind: string
+  points: { t: string; p: number }[]
   text?: string
   color?: string
+  width?: number
+  stop?: number
 }
 
 export const getDrawings = (datasetId: string) =>

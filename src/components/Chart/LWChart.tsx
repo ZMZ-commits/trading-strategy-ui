@@ -10,7 +10,6 @@ import type { Indicators } from '../../hooks/useIndicators'
 import type { CustomSeries } from '../../api/custom'
 import type { StrategyChartData } from '../../api/strategyChart'
 import { VertLinesPrimitive, type VertMarker } from './vertLinePrimitive'
-import { DrawingsPrimitive, type DrawingShape } from './drawingsPrimitive'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -40,12 +39,10 @@ interface Props {
   /** Fired when the chart is clicked while labelling is armed. Reports the bar
    *  the click landed on, so a mark always snaps to a real bar. */
   onBarClick?: (bar: { timestamp: string; close: number }) => void
-  /** Hand-drawn annotations (boxes, levels, arrows) anchored to time+price. */
-  drawings?: DrawingShape[]
-  /** Fired on click while a drawing tool is armed, with the clicked bar AND
-   *  the price under the cursor -- a box or level needs the price the pointer
-   *  was at, not the bar's close. */
-  onChartPoint?: (pt: { timestamp: string; price: number }) => void
+  /** Hands out the chart + price series once they exist, so the drawing layer
+   *  can convert between data and pixels. Fires again after every rebuild,
+   *  because the series object is recreated each time. */
+  onApiReady?: (api: { chart: any; series: any } | null) => void
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -93,7 +90,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, drawings, onChartPoint }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,8 +109,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   // bound once at mount, so it reads both through refs.
   const clickRef = useRef(onBarClick)
   clickRef.current = onBarClick
-  const pointRef = useRef(onChartPoint)
-  pointRef.current = onChartPoint
+
   const barsRef = useRef<OHLCBar[]>(data)
   barsRef.current = data
 
@@ -166,21 +162,6 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
         if (d < bestDelta) { bestDelta = d; best = b }
       }
       if (best) cb({ timestamp: best.timestamp, close: best.close })
-    })
-    c.subscribeClick((p: any) => {
-      const cb = pointRef.current
-      if (!cb || p?.time == null || !priceRef.current) return
-      const bars = barsRef.current
-      let best: OHLCBar | null = null
-      let bestDelta = Infinity
-      for (const b of bars) {
-        const d = Math.abs(toTime(b.timestamp) - (p.time as number))
-        if (d < bestDelta) { bestDelta = d; best = b }
-      }
-      // Price comes from the pointer's y, not the bar: drawing a box means
-      // "where I clicked", while a label means "this bar".
-      const price = p.point ? priceRef.current.coordinateToPrice(p.point.y) : null
-      if (best && price != null) cb({ timestamp: best.timestamp, price })
     })
     return () => {
       c.remove(); chart.current = null
@@ -373,12 +354,6 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
     }
 
-    // Hand-drawn annotations, on top of everything else in the price pane.
-    if (drawings && drawings.length && priceRef.current) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { (priceRef.current as any).attachPrimitive(new DrawingsPrimitive(drawings)) } catch { /* noop */ }
-    }
-
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -403,7 +378,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     }
     emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels, drawings])
+    onApiReady?.({ chart: c, series: priceRef.current })
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so
   // the chart gets its whole box.

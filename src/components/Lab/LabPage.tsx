@@ -3,6 +3,7 @@ import { LabTopPanel } from './LabTopPanel'
 import { StockChart } from '../Chart/StockChart'
 import { BottomPanel } from '../BottomPanel/BottomPanel'
 import { saveLabelMarks, getLabelSet, getDrawings, saveDrawings, type DatasetMeta, type BacktestMeta, type LabelSet, type LabelMark, type DrawingRecord } from '../../api/datasets'
+import type { Shape } from '../Chart/drawing/types'
 import type { Range } from '../../types'
 
 interface Props {
@@ -45,24 +46,24 @@ export function LabPage({ isMobile, ticker, dataset, onSelectDataset, backtest, 
   // Chart markup for the active dataset. Same hold-locally-flush-on-debounce
   // shape as label marks, for the same reason: drawing several shapes in a row
   // should be one write.
-  const [drawings, setDrawings] = useState<DrawingRecord[]>([])
+  const [drawings, setDrawings] = useState<Shape[]>([])
   const drawTimer = useRef<number | null>(null)
   useEffect(() => {
     if (!dataset) { setDrawings([]); return }
     let cancelled = false
     getDrawings(dataset.id)
-      .then(d => { if (!cancelled) setDrawings(d) })
+      .then(d => { if (!cancelled) setDrawings(d as unknown as Shape[]) })
       .catch(() => { if (!cancelled) setDrawings([]) })
     return () => { cancelled = true }
   }, [dataset?.id])
 
-  const handleDrawingsChange = useCallback((next: DrawingRecord[]) => {
+  const handleDrawingsChange = useCallback((next: Shape[]) => {
     setDrawings(next)
     if (!dataset) return
     if (drawTimer.current) window.clearTimeout(drawTimer.current)
     const id = dataset.id
     drawTimer.current = window.setTimeout(() => {
-      saveDrawings(id, next).catch(() => {})
+      saveDrawings(id, next as unknown as DrawingRecord[]).catch(() => {})
     }, 600)
   }, [dataset?.id])
 

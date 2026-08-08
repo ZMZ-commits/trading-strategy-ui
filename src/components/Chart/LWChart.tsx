@@ -10,6 +10,7 @@ import type { Indicators } from '../../hooks/useIndicators'
 import type { CustomSeries } from '../../api/custom'
 import type { StrategyChartData } from '../../api/strategyChart'
 import { VertLinesPrimitive, type VertMarker } from './vertLinePrimitive'
+import { DayBandsPrimitive, buildDayBands } from './dayBandsPrimitive'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -352,6 +353,17 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
+    }
+
+    // Alternating session shading. Attached before the marker primitives so it
+    // paints underneath them, and skipped entirely for single-day or daily data
+    // where per-day bands carry no information.
+    if (priceRef.current) {
+      const bands = buildDayBands(data, toTime)
+      if (bands.length) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        try { (priceRef.current as any).attachPrimitive(new DayBandsPrimitive(bands)) } catch { /* noop */ }
+      }
     }
 
     // Pane sizing via stretch factors — price always dominant, oscillators compact.

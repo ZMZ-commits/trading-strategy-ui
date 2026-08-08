@@ -215,20 +215,23 @@ export function DrawingLayer({
   }
 
   // ── pointer handling ──
-  const local = (e: React.PointerEvent | PointerEvent): Px => {
+  const local = (e: PointerEvent): Px => {
     const r = wrapRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!api) return
+  /** Returns true when the gesture belonged to drawing, so the caller knows to
+   *  keep it away from the chart. Anything else is left alone. */
+  const onPointerDown = (e: PointerEvent): boolean => {
+    if (!api) return false
     const { x, y } = local(e)
 
     if (tool === 'cursor') {
       const hit = hitTest(x, y)
-      onSelect(hit?.id ?? null)
-      if (!hit) return
-      e.currentTarget.setPointerCapture(e.pointerId)
+      // A click on empty space deselects, but must still reach the chart --
+      // otherwise panning would die everywhere except on top of a shape.
+      if (!hit) { if (selectedId) onSelect(null); return false }
+      onSelect(hit.id)
       const s = shapes.find(sh => sh.id === hit.id)!
       if (hit.stop) drag.current = { kind: 'stop', id: s.id }
       else if (hit.handle != null) drag.current = { kind: 'handle', id: s.id, index: hit.handle }
@@ -236,7 +239,7 @@ export function DrawingLayer({
         const a = anchorAt(x, y)
         drag.current = { kind: 'move', id: s.id, grabT: new Date(a.t).getTime(), grabP: a.p, orig: s }
       }
-      return
+      return true
     }
 
     // Placing a new shape.
@@ -245,12 +248,12 @@ export function DrawingLayer({
     if (!pending) {
       const need = ANCHOR_COUNT[kind]
       const text = kind === 'text' ? (window.prompt('Text:') ?? '').trim() : undefined
-      if (kind === 'text' && !text) { onToolFinished(); return }
+      if (kind === 'text' && !text) { onToolFinished(); return true }
       const shape: Shape = {
         id: Math.random().toString(36).slice(2, 10),
         kind, points: [a], color, width: 2, text,
       }
-      if (need === 1) { onChange([...shapes, shape]); onToolFinished(); return }
+      if (need === 1) { onChange([...shapes, shape]); onToolFinished(); return true }
       setPending({ ...shape, points: [a, a] })
     } else {
       const done: Shape = { ...pending, points: [pending.points[0], a] }
@@ -264,10 +267,11 @@ export function DrawingLayer({
       setPending(null)
       onToolFinished()
     }
+    return true
   }
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!api) return
+  const onPointerMove = (e: PointerEvent): boolean => {
+    if (!api) return false
     const { x, y } = local(e)
     setCursor({ x, y })
 
@@ -295,10 +299,14 @@ export function DrawingLayer({
         }
       })
       onChange(next)
-      return
+      return true
     }
 
-    if (pending) setPending({ ...pending, points: [pending.points[0], anchorAt(x, y)] })
+    if (pending) {
+      setPending({ ...pending, points: [pending.points[0], anchorAt(x, y)] })
+      return true
+    }
+    return false
   }
 
   const nearestBarIso = (ms: number): string => {
@@ -311,11 +319,9 @@ export function DrawingLayer({
     return best.timestamp
   }
 
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (drag.current) {
-      try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* noop */ }
-      drag.current = null
-    }
+  const onPointerUp = (): boolean => {
+    if (drag.current) { drag.current = null; return true }
+    return false
   }
 
   // Delete / Escape, the two keys every drawing tool has.
@@ -337,9 +343,37 @@ export function DrawingLayer({
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, shapes, onChange, onSelect, onToolFinished])
 
-  // Only intercept pointers when there's drawing to do -- otherwise the chart
-  // keeps its own pan/zoom/crosshair behaviour untouched.
-  const interactive = tool !== 'cursor' || shapes.length > 0
+  // Pointer handling lives on the PARENT, in the capture phase, and the layer
+  // itself is permanently pointer-events: none.
+  //
+  // The layer used to take pointer events whenever any shape existed. Because
+  // it covers the whole price pane, that silently ate the chart's wheel-zoom
+  // and drag-to-pan -- the chart never saw them. Capturing instead lets each
+  // gesture be classified first: only actual drawing interactions are stopped,
+  // and everything else (zoom, pan, crosshair) reaches the chart untouched.
+  useEffect(() => {
+    const parent = wrapRef.current?.parentElement
+    if (!parent) return
+    const stop = (e: PointerEvent) => { e.preventDefault(); e.stopPropagation() }
+    const down = (e: PointerEvent) => { if (onPointerDown(e)) stop(e) }
+    const move = (e: PointerEvent) => { if (onPointerMove(e)) stop(e) }
+    const up = (e: PointerEvent) => { if (onPointerUp()) stop(e) }
+    const leave = () => setCursor(null)
+    // The layer takes no pointers, so the crosshair cursor has to live on the
+    // element that does.
+    parent.style.cursor = tool === 'cursor' ? '' : 'crosshair'
+    parent.addEventListener('pointerdown', down, true)
+    parent.addEventListener('pointermove', move, true)
+    parent.addEventListener('pointerup', up, true)
+    parent.addEventListener('pointerleave', leave, true)
+    return () => {
+      parent.removeEventListener('pointerdown', down, true)
+      parent.removeEventListener('pointermove', move, true)
+      parent.removeEventListener('pointerup', up, true)
+      parent.removeEventListener('pointerleave', leave, true)
+      parent.style.cursor = ''
+    }
+  })
 
   return (
     <div
@@ -350,13 +384,8 @@ export function DrawingLayer({
         // filling the container so the layer is never zero-height.
         height: paneH || undefined,
         bottom: paneH ? undefined : 0,
-        pointerEvents: interactive ? 'auto' : 'none',
-        cursor: tool === 'cursor' ? 'default' : 'crosshair',
+        pointerEvents: 'none',
       }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={() => setCursor(null)}
     >
       <canvas ref={canvasRef} className="w-full h-full" />
     </div>

@@ -43,22 +43,47 @@ export function DrawingLayer({
   const drag = useRef<DragMode | null>(null)
   const [, force] = useState(0)
 
-  /** Height of the PRICE pane only.
+  /** Height of the PRICE pane, measured and kept current.
    *
    *  The chart container also holds the volume overlay, any oscillator panes
    *  and the time axis. priceToCoordinate/coordinateToPrice are relative to
-   *  the price pane, so letting the layer span the full container made clicks
-   *  below that pane extrapolate into nonsense prices -- a click visibly above
-   *  another could come back as a LOWER price. Constraining the layer to the
-   *  price pane keeps pixels and prices in the same space. */
-  const paneHeight = (): number => {
-    if (!api) return 0
-    try {
-      const panes = api.chart.panes()
-      if (panes && panes.length) return panes[0].getHeight()
-    } catch { /* fall through */ }
-    return wrapRef.current?.clientHeight ?? 0
+   *  the price pane, so a layer spanning the full container makes clicks below
+   *  that pane extrapolate into nonsense prices.
+   *
+   *  But the pane API also reports a height before the chart has laid out --
+   *  reading it once during render gave a 2px layer that silently swallowed
+   *  every click. So it is measured into state, re-measured on resize and on
+   *  pan/zoom, and any implausible value falls back to the full container. */
+  const [paneH, setPaneH] = useState(0)
+
+  const measure = () => {
+    const parentH = wrapRef.current?.parentElement?.clientHeight ?? 0
+    let h = 0
+    if (api) {
+      try {
+        const panes = api.chart.panes()
+        if (panes && panes.length) h = panes[0].getHeight()
+      } catch { /* fall through to the container height */ }
+    }
+    if (!Number.isFinite(h) || h < 40) h = parentH
+    if (parentH > 0) h = Math.min(h, parentH)
+    setPaneH(prev => (Math.abs(prev - h) > 1 ? h : prev))
   }
+
+  useEffect(() => {
+    measure()
+    // The chart lays out asynchronously, so one measure at mount is not enough.
+    const r1 = requestAnimationFrame(measure)
+    const t1 = window.setTimeout(measure, 250)
+    const parent = wrapRef.current?.parentElement
+    const ro = parent ? new ResizeObserver(measure) : null
+    if (parent && ro) ro.observe(parent)
+    return () => {
+      cancelAnimationFrame(r1)
+      window.clearTimeout(t1)
+      ro?.disconnect()
+    }
+  }, [api])
 
   // ── coordinate helpers ──
   const toX = (iso: string): number | null => {
@@ -116,7 +141,7 @@ export function DrawingLayer({
     if (!cv || !wrap || !api) return
     const dpr = window.devicePixelRatio || 1
     const w = wrap.clientWidth
-    const h = paneHeight() || wrap.clientHeight
+    const h = paneH || wrap.clientHeight
     cv.width = w * dpr; cv.height = h * dpr
     cv.style.width = `${w}px`; cv.style.height = `${h}px`
     const ctx = cv.getContext('2d')!
@@ -144,7 +169,7 @@ export function DrawingLayer({
   // Repaint on pan/zoom, since shape pixels are derived from the chart scales.
   useEffect(() => {
     if (!api) return
-    const redraw = () => force(n => n + 1)
+    const redraw = () => { measure(); force(n => n + 1) }
     api.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw)
     return () => { try { api.chart.timeScale().unsubscribeVisibleLogicalRangeChange(redraw) } catch { /* noop */ } }
   }, [api])
@@ -312,8 +337,10 @@ export function DrawingLayer({
       ref={wrapRef}
       className="absolute left-0 right-0 top-0"
       style={{
-        // Only as tall as the price pane -- see paneHeight().
-        height: paneHeight() || undefined,
+        // Only as tall as the price pane -- see measure(). Falls back to
+        // filling the container so the layer is never zero-height.
+        height: paneH || undefined,
+        bottom: paneH ? undefined : 0,
         pointerEvents: interactive ? 'auto' : 'none',
         cursor: tool === 'cursor' ? 'default' : 'crosshair',
       }}

@@ -91,6 +91,7 @@ const OVERLAY_ITEMS = [
   { id: 'sma200', label: 'SMA 200', study: 'sma200' },
   { id: 'ema20', label: 'EMA 20', study: 'ema20' },
   { id: 'bbands', label: 'Bollinger Bands', study: 'bbands' },
+  { id: 'donchian', label: 'Donchian 20/10', study: 'donchian' },
   { id: 'vwap', label: 'VWAP', study: 'vwap' },
 ]
 const OSC_ITEMS = [

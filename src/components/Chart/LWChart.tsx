@@ -458,29 +458,32 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // explicit key (rather than inferring from data timestamps) avoids missing a
     // refit when e.g. only the ticker changes but the date span looks the same.
     if (fitKey !== dataSig.current) {
-      // The series now spans the whole dataset, so fitContent() would show all
-      // of it. Position the window explicitly instead; the surrounding bars
-      // stay loaded and reachable by scrolling.
-      let positioned = false
-      if (viewRange) {
-        try {
-          c.timeScale().setVisibleRange({ from: toTime(viewRange.from), to: toTime(viewRange.to) })
-          positioned = true
-        } catch { /* fall back to fitting */ }
-      }
-      if (!positioned) {
-        // fitContent() would include the whitespace padding and zoom out past
-        // the data, so fit to the real bars explicitly when padding is on.
+      // The series spans the whole dataset (plus blank padding), so fitContent()
+      // would show all of it. Position the window explicitly instead.
+      //
+      // Applied again on the next frame: setVisibleRange is silently ignored
+      // when the chart has not laid out yet, which left the initial view
+      // stranded in the trailing whitespace instead of on the data.
+      const position = () => {
+        if (viewRange) {
+          try {
+            c.timeScale().setVisibleRange({ from: toTime(viewRange.from), to: toTime(viewRange.to) })
+            return true
+          } catch { /* fall through */ }
+        }
         if (pads.lead.length && data.length > 1) {
           try {
             c.timeScale().setVisibleRange({
               from: toTime(data[0].timestamp), to: toTime(data[data.length - 1].timestamp),
             })
-            positioned = true
-          } catch { /* noop */ }
+            return true
+          } catch { /* fall through */ }
         }
-        if (!positioned) c.timeScale().fitContent()
+        c.timeScale().fitContent()
+        return true
       }
+      position()
+      requestAnimationFrame(() => { if (chart.current === c) position() })
       dataSig.current = fitKey
     } else if (savedRange) {
       // Not a real refit -- put the view back exactly where it was instead of

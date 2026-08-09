@@ -44,6 +44,13 @@ interface Props {
    *  can convert between data and pixels. Fires again after every rebuild,
    *  because the series object is recreated each time. */
   onApiReady?: (api: { chart: any; series: any } | null) => void
+  /** Where to put the view when fitKey changes. The chart is always handed the
+   *  FULL series; this only positions the window, so zooming and panning out of
+   *  it stays possible. Omit to fall back to fitContent(). */
+  viewRange?: { from: string; to: string } | null
+  /** Reports the visible window as real bar timestamps whenever the user zooms
+   *  or pans, so the scrubber and the row/transaction tables can follow. */
+  onVisibleRangeChange?: (from: string | null, to: string | null) => void
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -91,7 +98,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,6 +120,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
 
   const barsRef = useRef<OHLCBar[]>(data)
   barsRef.current = data
+  const rangeCbRef = useRef(onVisibleRangeChange)
+  rangeCbRef.current = onVisibleRangeChange
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function emitReadout(param?: any) {
@@ -145,11 +154,50 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       // minBarSpacing defaults to 0.5px, which caps how far fitContent() can
       // zoom out -- with a large dataset (e.g. thousands of 1m bars) MAX
       // couldn't compress far enough to show the whole thing end-to-end.
-      timeScale: { borderColor: '#21262d', timeVisible: true, secondsVisible: false, minBarSpacing: 0.001 },
+      timeScale: {
+        borderColor: '#21262d', timeVisible: true, secondsVisible: false,
+        minBarSpacing: 0.001,
+        // The view must never be trapped against the data. Leaving both edges
+        // unfixed (and keeping a right offset) means you can zoom out past the
+        // whole dataset and drag beyond either end into empty chart, with the
+        // time axis still drawn.
+        fixLeftEdge: false, fixRightEdge: false, rightOffset: 12,
+        lockVisibleTimeRangeOnResize: true,
+      },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
       crosshair: { mode: CrosshairMode.Normal },
     })
     chart.current = c
     c.subscribeCrosshairMove(p => emitReadout(p))
+
+    // Report the visible window as REAL bar timestamps rather than inverting
+    // toTime() -- the inverse drifts across a DST boundary, and the consumers
+    // (scrubber, row table, transactions) all want bar timestamps anyway.
+    // rAF-throttled because dragging fires this continuously.
+    let rangeRaf = 0
+    c.timeScale().subscribeVisibleTimeRangeChange(() => {
+      if (rangeRaf) return
+      rangeRaf = requestAnimationFrame(() => {
+        rangeRaf = 0
+        const cb = rangeCbRef.current
+        if (!cb) return
+        const r = c.timeScale().getVisibleRange()
+        if (!r) { cb(null, null); return }
+        const from = r.from as number
+        const to = r.to as number
+        let first: string | null = null
+        let last: string | null = null
+        for (const b of barsRef.current) {
+          const t = toTime(b.timestamp)
+          if (t >= from && t <= to) {
+            if (first === null) first = b.timestamp
+            last = b.timestamp
+          }
+        }
+        cb(first, last)
+      })
+    })
     // Clicking reports the nearest bar rather than a raw coordinate, so a mark
     // can never land between bars.
     c.subscribeClick((p: any) => {
@@ -165,6 +213,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       if (best) cb({ timestamp: best.timestamp, close: best.close })
     })
     return () => {
+      if (rangeRaf) cancelAnimationFrame(rangeRaf)
       c.remove(); chart.current = null
       seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
     }
@@ -381,7 +430,17 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // explicit key (rather than inferring from data timestamps) avoids missing a
     // refit when e.g. only the ticker changes but the date span looks the same.
     if (fitKey !== dataSig.current) {
-      c.timeScale().fitContent()
+      // The series now spans the whole dataset, so fitContent() would show all
+      // of it. Position the window explicitly instead; the surrounding bars
+      // stay loaded and reachable by scrolling.
+      let positioned = false
+      if (viewRange) {
+        try {
+          c.timeScale().setVisibleRange({ from: toTime(viewRange.from), to: toTime(viewRange.to) })
+          positioned = true
+        } catch { /* fall back to fitting */ }
+      }
+      if (!positioned) c.timeScale().fitContent()
       dataSig.current = fitKey
     } else if (savedRange) {
       // Not a real refit -- put the view back exactly where it was instead of
@@ -391,6 +450,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     onApiReady?.({ chart: c, series: priceRef.current })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so

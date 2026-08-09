@@ -128,6 +128,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   barsRef.current = data
   const rangeCbRef = useRef(onVisibleRangeChange)
   rangeCbRef.current = onVisibleRangeChange
+  /** Pending view-position retries, cleared whenever the effect re-runs so a
+   *  stale retry can never fight a newer window. */
+  const retryTimers = useRef<number[]>([])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function emitReadout(param?: any) {
@@ -219,6 +222,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       if (best) cb({ timestamp: best.timestamp, close: best.close })
     })
     return () => {
+      for (const t of retryTimers.current) window.clearTimeout(t)
+      retryTimers.current = []
       if (rangeRaf) cancelAnimationFrame(rangeRaf)
       c.remove(); chart.current = null
       seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
@@ -239,6 +244,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // more time than what was visible, the chart silently widens to show it.
     // Capture the range now and explicitly restore it below (unless this is
     // a real refit) so indicator/strategy-only changes never move the view.
+    for (const t of retryTimers.current) window.clearTimeout(t)
+    retryTimers.current = []
     const savedRange = c.timeScale().getVisibleRange()
     for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
     seriesRefs.current = []
@@ -482,8 +489,23 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
         c.timeScale().fitContent()
         return true
       }
+      // Retried on several clocks rather than one: setVisibleRange is a no-op
+      // before layout, and rAF alone is not dependable (it does not fire at all
+      // in a backgrounded tab, which would leave the view stranded in the blank
+      // padding). Each retry re-checks first, so a user who has already scrolled
+      // is never yanked back.
       position()
-      requestAnimationFrame(() => { if (chart.current === c) position() })
+      const settled = () => {
+        const r = c.timeScale().getVisibleRange()
+        if (!r || !viewRange) return false
+        return Math.abs((r.from as number) - toTime(viewRange.from)) < 60 &&
+               Math.abs((r.to as number) - toTime(viewRange.to)) < 60
+      }
+      const retry = () => { if (chart.current === c && !settled()) position() }
+      requestAnimationFrame(retry)
+      const t1 = window.setTimeout(retry, 60)
+      const t2 = window.setTimeout(retry, 250)
+      retryTimers.current.push(t1, t2)
       dataSig.current = fitKey
     } else if (savedRange) {
       // Not a real refit -- put the view back exactly where it was instead of

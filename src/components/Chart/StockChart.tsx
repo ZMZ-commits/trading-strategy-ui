@@ -326,7 +326,10 @@ export function StockChart({
   // than the tab that was clicked, so panning moves the tables with the view.
   const [visibleWindow, setVisibleWindow] = useState<{ start: string; end: string } | null>(null)
   const handleVisibleRange = useCallback((from: string | null, to: string | null) => {
-    setVisibleWindow(from && to ? { start: from, end: to } : null)
+    // Panning fully into the blank padding reports no bars. Hold the last real
+    // window rather than snapping the scrubber back to the range tab.
+    if (!from || !to) return
+    setVisibleWindow({ start: from, end: to })
   }, [])
   useEffect(() => { setVisibleWindow(null) }, [dataset?.id])
 
@@ -439,6 +442,11 @@ export function StockChart({
   const effectiveType = isLive ? 'line' : chartType
   // Replay walks the SELECTED window, not the whole dataset -- replaying a day
   // you picked is the point of it.
+  // Blank scroll room either side of the data, scaled to the dataset so it is
+  // meaningful both zoomed in and at MAX.
+  const blankPadBars = isDatasetMode
+    ? Math.min(2000, Math.max(200, Math.round(chartData.length * 0.15)))
+    : 0
   const replayBars = isDatasetMode ? focusWindowBars : chartData
   const fullLen = replayBars.length
 
@@ -574,7 +582,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')

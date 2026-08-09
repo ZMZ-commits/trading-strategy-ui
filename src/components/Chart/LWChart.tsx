@@ -51,6 +51,12 @@ interface Props {
   /** Reports the visible window as real bar timestamps whenever the user zooms
    *  or pans, so the scrubber and the row/transaction tables can follow. */
   onVisibleRangeChange?: (from: string | null, to: string | null) => void
+  /** Empty time slots to append before and after the data.
+   *
+   *  fixLeftEdge/fixRightEdge only PERMIT scrolling past the data -- the chart
+   *  still will not scroll into time that has no slots at all, so blank space
+   *  has to exist as real whitespace points. 0 disables the padding. */
+  padBars?: number
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -98,7 +104,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -241,16 +247,38 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const add = (def: any, opts: any, pane = 0) => { const s = c.addSeries(def, opts, pane); seriesRefs.current.push(s); return s }
 
+    // Whitespace either side of the real bars, so there is somewhere to scroll
+    // to. The step is the SMALLEST gap between bars -- using an average would
+    // be skewed by overnight gaps and produce pad slots days apart.
+    const pads = (() => {
+      if (padBars <= 0 || data.length < 2) return { lead: [], trail: [] }
+      let step = Infinity
+      for (let i = 1; i < data.length; i++) {
+        const d = toTime(data[i].timestamp) - toTime(data[i - 1].timestamp)
+        if (d > 0 && d < step) step = d
+      }
+      if (!Number.isFinite(step)) return { lead: [], trail: [] }
+      const first = toTime(data[0].timestamp)
+      const last = toTime(data[data.length - 1].timestamp)
+      const lead: { time: UTCTimestamp }[] = []
+      const trail: { time: UTCTimestamp }[] = []
+      for (let i = padBars; i >= 1; i--) lead.push({ time: (first - i * step) as UTCTimestamp })
+      for (let i = 1; i <= padBars; i++) trail.push({ time: (last + i * step) as UTCTimestamp })
+      return { lead, trail }
+    })()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const withPad = (rows: any[]) => (pads.lead.length ? [...pads.lead, ...rows, ...pads.trail] : rows)
+
     // Price (pane 0)
     if (type === 'candlestick') {
       const ps = add(CandlestickSeries, {
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
       })
-      ps.setData(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close })))
+      ps.setData(withPad(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close }))))
       priceRef.current = ps
     } else {
       const ps = add(AreaSeries, { lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2 })
-      ps.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.close })))
+      ps.setData(withPad(data.map(b => ({ time: toTime(b.timestamp), value: b.close }))))
       priceRef.current = ps
     }
 
@@ -440,7 +468,19 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
           positioned = true
         } catch { /* fall back to fitting */ }
       }
-      if (!positioned) c.timeScale().fitContent()
+      if (!positioned) {
+        // fitContent() would include the whitespace padding and zoom out past
+        // the data, so fit to the real bars explicitly when padding is on.
+        if (pads.lead.length && data.length > 1) {
+          try {
+            c.timeScale().setVisibleRange({
+              from: toTime(data[0].timestamp), to: toTime(data[data.length - 1].timestamp),
+            })
+            positioned = true
+          } catch { /* noop */ }
+        }
+        if (!positioned) c.timeScale().fitContent()
+      }
       dataSig.current = fitKey
     } else if (savedRange) {
       // Not a real refit -- put the view back exactly where it was instead of

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { RangeTabs } from './RangeTabs'
 import { LWChart, toTime } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
@@ -16,7 +16,7 @@ import { useIndicators } from '../../hooks/useIndicators'
 import { useCustomList, useCustomSeries } from '../../hooks/useCustomIndicators'
 import { useStrategyChart } from '../../hooks/useStrategyChart'
 import { getDatasetBars, computeIndicators, backtestToChartData, type DatasetMeta, type BacktestMeta, type LabelMark } from '../../api/datasets'
-import { resampleBars, windowBars, windowSeries, filterByDateRange, availableIntervals } from '../../utils/ohlc'
+import { resampleBars, windowBars, filterByDateRange, availableIntervals } from '../../utils/ohlc'
 import { useChartReadout } from '../../state/chartReadout'
 import type { StrategyChartData } from '../../api/strategyChart'
 import type { Range, Interval, OHLCBar, Strategy } from '../../types'
@@ -289,33 +289,62 @@ export function StockChart({
       .catch(() => { if (!cancelled) setDatasetIndicatorsFull({}) })
     return () => { cancelled = true }
   }, [isDatasetMode, datasetResampled, studies])
+  // The selected window (range tab, custom dates, or the scrubber). This no
+  // longer decides which bars EXIST -- the chart is handed the whole dataset --
+  // it only decides where the view is placed. That is what makes 1D as freely
+  // zoomable and pannable as MAX: previously the chart received ~390 bars and
+  // had nothing to scroll to.
   const datasetDisplayBars = useMemo(() => {
     if (!isDatasetMode) return []
     if (winStart && winEnd) return filterByDateRange(datasetResampled, winStart, winEnd)
     return windowBars(datasetResampled, range)
   }, [isDatasetMode, datasetResampled, winStart, winEnd, range])
-  // Same range/custom-window cutoff, applied directly to the RAW (native-
-  // granularity) dataset bars rather than the display-resampled ones -- so
-  // the reported bounds line up with actual trade/row timestamps even when
-  // the chart itself is showing a coarser aggregated interval.
   const datasetRawWindow = useMemo(() => {
     if (!isDatasetMode) return []
     if (winStart && winEnd) return filterByDateRange(datasetBars, winStart, winEnd)
     return windowBars(datasetBars, range)
   }, [isDatasetMode, datasetBars, winStart, winEnd, range])
-  // The scrubber slides ONE window that everything shares -- candlesticks,
-  // volume, indicators, strategy, the row table and the transactions list.
-  // It previously moved only the indicator/strategy overlays, which meant
-  // dragging back past the range tab's cutoff drew indicators over a stretch
-  // with no candles under them. The range tab still sets the window (and
-  // resets the scrub); the scrubber just decides where that window sits.
+
+  // Bars of the selected window. Still needed by replay, which reveals a
+  // window rather than the entire dataset.
   const focusWindowBars = useMemo(
     () => (scrubWindow ? filterByDateRange(datasetResampled, scrubWindow.start, scrubWindow.end) : datasetDisplayBars),
     [scrubWindow, datasetResampled, datasetDisplayBars],
   )
+
+  // Where the chart should place its view when the window changes.
+  const viewRange = useMemo(() => {
+    if (!isDatasetMode) return null
+    if (scrubWindow) return { from: scrubWindow.start, to: scrubWindow.end }
+    const w = datasetDisplayBars
+    if (w.length === 0) return null
+    return { from: w[0].timestamp, to: w[w.length - 1].timestamp }
+  }, [isDatasetMode, scrubWindow, datasetDisplayBars])
+
+  // What the chart is ACTUALLY showing after any zoom/pan, reported back by
+  // LWChart as real bar timestamps. Everything downstream follows this rather
+  // than the tab that was clicked, so panning moves the tables with the view.
+  const [visibleWindow, setVisibleWindow] = useState<{ start: string; end: string } | null>(null)
+  const handleVisibleRange = useCallback((from: string | null, to: string | null) => {
+    // Panning fully into the blank padding reports no bars. Hold the last real
+    // window rather than snapping the scrubber back to the range tab.
+    if (!from || !to) return
+    setVisibleWindow({ start: from, end: to })
+  }, [])
+  useEffect(() => { setVisibleWindow(null) }, [dataset?.id])
+
+  // Fall back to the selected window until the chart has reported one (first
+  // paint), so nothing downstream sees a null window mid-mount.
+  const effectiveWindow = useMemo(() => {
+    if (!isDatasetMode) return null
+    if (visibleWindow) return visibleWindow
+    if (viewRange) return { start: viewRange.from, end: viewRange.to }
+    return null
+  }, [isDatasetMode, visibleWindow, viewRange])
+
   const focusRawWindow = useMemo(
-    () => (scrubWindow ? filterByDateRange(datasetBars, scrubWindow.start, scrubWindow.end) : datasetRawWindow),
-    [scrubWindow, datasetBars, datasetRawWindow],
+    () => (effectiveWindow ? filterByDateRange(datasetBars, effectiveWindow.start, effectiveWindow.end) : datasetRawWindow),
+    [effectiveWindow, datasetBars, datasetRawWindow],
   )
   useEffect(() => {
     if (!isDatasetMode) { onWindowChange?.(null, null); return }
@@ -327,9 +356,12 @@ export function StockChart({
   const datasetDisplayIndicators = useMemo(() => {
     const out: Record<string, { time: string[]; values: (number | null)[] }> = {}
     if (!isDatasetMode) return out
-    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = windowSeries(s, focusWindowBars)
+    // Unwindowed on purpose: panning left past the range tab's window must not
+    // run off the end of an indicator. They are computed over the full series
+    // anyway, so there is nothing to trim to.
+    for (const [k, s] of Object.entries(datasetIndicatorsFull)) out[k] = s
     return out
-  }, [isDatasetMode, datasetIndicatorsFull, focusWindowBars])
+  }, [isDatasetMode, datasetIndicatorsFull])
   const indicators = isDatasetMode ? datasetDisplayIndicators : (longPull ? jobIndicators : liveIndicators)
 
   // The strategy shown on the chart follows the Navigator selection (a workspace
@@ -362,22 +394,12 @@ export function StockChart({
   // the candlesticks. Live mode already gets pre-windowed data from the API
   // (winStart/winEnd query params), so this only applies in dataset mode.
   const visibleStrategyData = useMemo(() => {
+    // Lines and markers are no longer clamped to the window. The chart holds
+    // the whole dataset, so clamping would blank the strategy out the moment
+    // you panned past the range tab's edge.
     const lines = strategyData.lines.filter(ln => !hiddenStrategyLines.has(ln.name))
-    if (!isDatasetMode || focusWindowBars.length === 0) return { ...strategyData, lines }
-    // Compare instants, not raw strings: bars carry a local UTC offset while
-    // strategy signals come back in UTC, and those two orderings disagree as
-    // text -- which silently hid Buy/Sell markers on the window's last day.
-    const start = new Date(focusWindowBars[0].timestamp).getTime()
-    const end = new Date(focusWindowBars[focusWindowBars.length - 1].timestamp).getTime()
-    return {
-      ...strategyData,
-      lines: lines.map(ln => windowSeries(ln, focusWindowBars)),
-      signals: strategyData.signals.filter(s => {
-        const t = new Date(s.time).getTime()
-        return t >= start && t <= end
-      }),
-    }
-  }, [strategyData, hiddenStrategyLines, isDatasetMode, focusWindowBars])
+    return { ...strategyData, lines }
+  }, [strategyData, hiddenStrategyLines])
 
   // A strategy can declare the built-in indicators it uses (REQUIRES); tick them
   // on automatically when it's selected (like a mod bringing its dependencies),
@@ -415,17 +437,23 @@ export function StockChart({
   }))
   // Dataset mode charts the shared window, so the candles always sit under the
   // indicators/strategy drawn on top of them.
-  const chartData = isDatasetMode ? focusWindowBars : (isLive ? liveData : (longPull ? job.bars : data))
+  const chartData = isDatasetMode ? datasetResampled : (isLive ? liveData : (longPull ? job.bars : data))
   const latest = chartData[chartData.length - 1]
   const effectiveType = isLive ? 'line' : chartType
-  const fullLen = chartData.length
+  // Replay walks the SELECTED window, not the whole dataset -- replaying a day
+  // you picked is the point of it.
+  // Blank scroll room either side of the data, scaled to the dataset so it is
+  // meaningful both zoomed in and at MAX.
+  const blankPadBars = isDatasetMode
+    ? Math.min(2000, Math.max(200, Math.round(chartData.length * 0.15)))
+    : 0
+  const replayBars = isDatasetMode ? focusWindowBars : chartData
+  const fullLen = replayBars.length
 
-  // Identifies the actual viewing window; the chart re-fits (end-to-end) only
-  // when this changes -- switching ticker/range/interval/custom dates,
-  // switching datasets, or sliding the scrubber -- and preserves zoom for
-  // everything else (indicator/strategy toggles, replay). The scrub bounds
-  // belong here: dragging swaps in a different slice of bars, which has to be
-  // fitted or it lands outside the retained view and shows as blank.
+  // Identifies the viewing window; the chart REPOSITIONS (not refits, since it
+  // now holds the whole dataset) only when this changes -- switching ticker/
+  // range/interval/custom dates, switching datasets, or sliding the scrubber.
+  // Zoom is preserved for everything else (indicator/strategy toggles, replay).
   const fitKey = isDatasetMode
     ? `dataset:${dataset!.id}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}:${scrubWindow?.start ?? ''}:${scrubWindow?.end ?? ''}`
     : `${ticker}:${range}:${dataInterval ?? ''}:${winStart ?? ''}:${winEnd ?? ''}`
@@ -454,10 +482,10 @@ export function StockChart({
 
   const revealN = replayOn && !isLive ? Math.min(replayIdx, fullLen) : fullLen
   const replaySlicing = replayOn && !isLive && revealN < fullLen
-  const cutoffMs = replaySlicing && chartData[revealN - 1]
-    ? new Date(chartData[revealN - 1].timestamp).getTime()
+  const cutoffMs = replaySlicing && replayBars[revealN - 1]
+    ? new Date(replayBars[revealN - 1].timestamp).getTime()
     : Infinity
-  const displayData = replaySlicing ? chartData.slice(0, revealN) : chartData
+  const displayData = replaySlicing ? replayBars.slice(0, revealN) : chartData
   const displayIndicators = replaySlicing ? sliceIndicators(indicators, revealN) : indicators
   const displayCustom = replaySlicing ? customSeries.map(s => sliceSeries(s, revealN)) : customSeries
   const displayStrategy = useMemo(() => {
@@ -554,7 +582,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
@@ -937,6 +965,9 @@ export function StockChart({
           together: candlesticks, volume, indicators, strategy, the row table
           and the transactions list. Drag the body to keep the window's size
           (so "1D" stays a day wide) or an edge to widen/narrow it. */}
+      {/* focusRawWindow follows the chart's visible range, so zooming or
+          dragging the candles resizes and slides this handle too -- and
+          dragging the handle still drives the chart, as before. */}
       {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}

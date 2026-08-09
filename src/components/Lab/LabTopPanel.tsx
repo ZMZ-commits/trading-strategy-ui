@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { ResizeHandle } from '../common/ResizeHandle'
@@ -107,7 +107,15 @@ export function LabTopPanel({
     return () => window.clearInterval(id)
   }, [refreshDatasets])
 
-  useEffect(() => { listItems().then(d => setStrategies(d.strategies)).catch(() => {}) }, [])
+  // Polled, not fetched once: a strategy published while the tab is open would
+  // otherwise stay invisible until a manual reload, which reads as "the
+  // strategy isn't there" rather than "the list is stale".
+  useEffect(() => {
+    const load = () => { listItems().then(d => setStrategies(d.strategies)).catch(() => {}) }
+    load()
+    const id = window.setInterval(load, POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
 
   const refreshLabels = useCallback(() => {
     if (!activeDatasetId) { setLabelSets([]); return }
@@ -168,6 +176,25 @@ export function LabTopPanel({
     const id = window.setInterval(refreshBacktests, POLL_MS)
     return () => window.clearInterval(id)
   }, [refreshBacktests])
+
+  // Keep the SELECTED backtest in step with the polled list.
+  //
+  // Running a strategy selects the record createBacktest returned -- which is
+  // a "pending" snapshot with result: null, because the run happens in the
+  // background. The list was polled but the selection was not, so a finished
+  // run's signals never reached the chart: the strategy you just ran looked
+  // empty, and its results only appeared once you clicked a DIFFERENT row and
+  // happened to pick up a fresh record.
+  const syncedRef = useRef('')
+  useEffect(() => {
+    if (!activeBacktestId) { syncedRef.current = ''; return }
+    const fresh = backtests.find(b => b.id === activeBacktestId)
+    if (!fresh) return
+    const sig = `${fresh.id}:${fresh.status}:${fresh.result ? 'r' : '-'}`
+    if (sig === syncedRef.current) return
+    syncedRef.current = sig
+    onSelectBacktest(fresh)
+  }, [backtests, activeBacktestId, onSelectBacktest])
 
   const activeDataset = datasets.find(d => d.id === activeDatasetId) ?? null
 

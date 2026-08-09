@@ -146,3 +146,26 @@ export const saveLabelMarks = (datasetId: string, labelId: string, marks: LabelM
 
 export const deleteLabelSet = (datasetId: string, labelId: string) =>
   req<void>(`/datasets/${datasetId}/labels/${labelId}`, { method: 'DELETE' })
+
+// ── Drawings (hand-drawn chart annotations) ──────────────────────────────
+
+/** Stored shape: a list of {t, p} anchors plus optional styling. One schema
+ *  covers one-anchor levels, two-anchor lines and three-level position tools. */
+export interface DrawingRecord {
+  id: string
+  kind: string
+  points: { t: string; p: number }[]
+  text?: string
+  color?: string
+  width?: number
+  stop?: number
+}
+
+export const getDrawings = (datasetId: string) =>
+  req<{ drawings: DrawingRecord[] }>(`/datasets/${datasetId}/drawings`).then(d => d.drawings)
+
+export const saveDrawings = (datasetId: string, drawings: DrawingRecord[]) =>
+  req<{ drawings: DrawingRecord[] }>(`/datasets/${datasetId}/drawings`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drawings }),
+  }).then(d => d.drawings)

@@ -1,0 +1,393 @@
+import { useEffect, useRef, useState } from 'react'
+import type { OHLCBar } from '../../../types'
+import { drawShape, distToSegment, HANDLE_HIT, type Px } from './render'
+import { ANCHOR_COUNT, DEFAULT_COLOR, type Shape, type Tool, type ToolKind } from './types'
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+interface Props {
+  /** Live chart + price series, needed to convert between data and pixels. */
+  api: { chart: any; series: any } | null
+  bars: OHLCBar[]
+  shapes: Shape[]
+  onChange: (shapes: Shape[]) => void
+  tool: Tool
+  /** Called once a shape is finished, so the toolbar can drop back to Select. */
+  onToolFinished: () => void
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+  /** Snap anchors to the nearest OHLC value of the bar under the cursor. */
+  magnet: boolean
+  color: string
+}
+
+type DragMode =
+  | { kind: 'move'; id: string; grabT: number; grabP: number; orig: Shape }
+  | { kind: 'handle'; id: string; index: number }
+  | { kind: 'stop'; id: string }
+
+/** Interactive drawing surface layered over the chart.
+ *
+ *  This is a plain canvas rather than a lightweight-charts primitive because
+ *  primitives can only paint -- they get no pointer events, so selection,
+ *  dragging and resize handles are impossible through them. Drawing here and
+ *  converting coordinates through the chart's own scales keeps shapes locked
+ *  to the data while giving full control of interaction. */
+export function DrawingLayer({
+  api, bars, shapes, onChange, tool, onToolFinished, selectedId, onSelect, magnet, color,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [pending, setPending] = useState<Shape | null>(null)
+  const [cursor, setCursor] = useState<Px | null>(null)
+  const drag = useRef<DragMode | null>(null)
+  const [, force] = useState(0)
+
+  /** Height of the PRICE pane, measured and kept current.
+   *
+   *  The chart container also holds the volume overlay, any oscillator panes
+   *  and the time axis. priceToCoordinate/coordinateToPrice are relative to
+   *  the price pane, so a layer spanning the full container makes clicks below
+   *  that pane extrapolate into nonsense prices.
+   *
+   *  But the pane API also reports a height before the chart has laid out --
+   *  reading it once during render gave a 2px layer that silently swallowed
+   *  every click. So it is measured into state, re-measured on resize and on
+   *  pan/zoom, and any implausible value falls back to the full container. */
+  const [paneH, setPaneH] = useState(0)
+
+  const measure = () => {
+    const parentH = wrapRef.current?.parentElement?.clientHeight ?? 0
+    let h = 0
+
+    // Prefer the DOM: lightweight-charts lays panes out as table rows, and the
+    // first row IS the price pane, so its height always matches what is really
+    // on screen. chart.panes()[0].getHeight() has been seen reporting a stale
+    // pre-layout 2px, which collapsed this layer and ate every click.
+    const table = wrapRef.current?.parentElement?.querySelector('table')
+    const firstRow = table?.querySelector('tr')
+    if (firstRow) h = firstRow.getBoundingClientRect().height
+
+    if ((!Number.isFinite(h) || h < 40) && api) {
+      try {
+        const panes = api.chart.panes()
+        if (panes && panes.length) h = panes[0].getHeight()
+      } catch { /* fall through to the container height */ }
+    }
+    if (!Number.isFinite(h) || h < 40) h = parentH
+    if (parentH > 0) h = Math.min(h, parentH)
+    setPaneH(prev => (Math.abs(prev - h) > 1 ? h : prev))
+  }
+
+  useEffect(() => {
+    measure()
+    // The chart lays out asynchronously, so one measure at mount is not enough.
+    const r1 = requestAnimationFrame(measure)
+    const t1 = window.setTimeout(measure, 250)
+    const parent = wrapRef.current?.parentElement
+    const ro = parent ? new ResizeObserver(measure) : null
+    if (parent && ro) ro.observe(parent)
+    return () => {
+      cancelAnimationFrame(r1)
+      window.clearTimeout(t1)
+      ro?.disconnect()
+    }
+  }, [api])
+
+  // ── coordinate helpers ──
+  const toX = (iso: string): number | null => {
+    if (!api) return null
+    const d = new Date(iso)
+    const t = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000)
+    const x = api.chart.timeScale().timeToCoordinate(t as any)
+    return x == null ? null : x
+  }
+  const toY = (price: number): number | null => {
+    if (!api) return null
+    const y = api.series.priceToCoordinate(price)
+    return y == null ? null : y
+  }
+  const priceAt = (y: number): number => (api ? (api.series.coordinateToPrice(y) ?? 0) : 0)
+  /** Nearest bar to a pixel x -- anchors always land on a real bar. */
+  const barAt = (x: number): OHLCBar | null => {
+    if (!api || bars.length === 0) return null
+    const t = api.chart.timeScale().coordinateToTime(x)
+    if (t == null) return bars[bars.length - 1]
+    let best = bars[0], bd = Infinity
+    for (const b of bars) {
+      const d = new Date(b.timestamp)
+      const bt = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000)
+      const delta = Math.abs(bt - (t as number))
+      if (delta < bd) { bd = delta; best = b }
+    }
+    return best
+  }
+  /** Snap a price to the nearest OHLC of its bar when magnet is on. */
+  const snapPrice = (bar: OHLCBar | null, price: number): number => {
+    if (!magnet || !bar) return price
+    const cands = [bar.open, bar.high, bar.low, bar.close]
+    return cands.reduce((best, c) => (Math.abs(c - price) < Math.abs(best - price) ? c : best), cands[0])
+  }
+  const anchorAt = (x: number, y: number) => {
+    const bar = barAt(x)
+    const raw = priceAt(y)
+    return { t: bar?.timestamp ?? bars[bars.length - 1]?.timestamp ?? '', p: snapPrice(bar, raw) }
+  }
+
+  const pixelsFor = (s: Shape): Px[] => {
+    const out: Px[] = []
+    for (const a of s.points) {
+      const x = toX(a.t), y = toY(a.p)
+      if (x == null || y == null) return []
+      out.push({ x, y })
+    }
+    return out
+  }
+
+  // ── render ──
+  useEffect(() => {
+    const cv = canvasRef.current, wrap = wrapRef.current
+    if (!cv || !wrap || !api) return
+    const dpr = window.devicePixelRatio || 1
+    const w = wrap.clientWidth
+    const h = paneH || wrap.clientHeight
+    cv.width = w * dpr; cv.height = h * dpr
+    cv.style.width = `${w}px`; cv.style.height = `${h}px`
+    const ctx = cv.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+
+    const all = pending ? [...shapes, pending] : shapes
+    for (const s of all) {
+      const pts = pixelsFor(s)
+      if (pts.length === 0) continue
+      drawShape(ctx, s, pts, { selected: s.id === selectedId, width: w, height: h, priceAt })
+    }
+
+    // Crosshair-ish preview while placing the next anchor.
+    if (tool !== 'cursor' && cursor) {
+      ctx.save()
+      ctx.strokeStyle = 'rgba(96,165,250,0.5)'
+      ctx.setLineDash([3, 3]); ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(cursor.x, 0); ctx.lineTo(cursor.x, h)
+      ctx.moveTo(0, cursor.y); ctx.lineTo(w, cursor.y); ctx.stroke()
+      ctx.restore()
+    }
+  })
+
+  // Repaint on pan/zoom, since shape pixels are derived from the chart scales.
+  useEffect(() => {
+    if (!api) return
+    const redraw = () => { measure(); force(n => n + 1) }
+    api.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw)
+    return () => { try { api.chart.timeScale().unsubscribeVisibleLogicalRangeChange(redraw) } catch { /* noop */ } }
+  }, [api])
+
+  // ── hit testing ──
+  const hitTest = (x: number, y: number): { id: string; handle?: number; stop?: boolean } | null => {
+    // Topmost first, so the most recently drawn shape wins an overlap.
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i]
+      const pts = pixelsFor(s)
+      if (pts.length === 0) continue
+      for (let h = 0; h < pts.length; h++) {
+        if (Math.hypot(x - pts[h].x, y - pts[h].y) <= HANDLE_HIT) return { id: s.id, handle: h }
+      }
+      if ((s.kind === 'long' || s.kind === 'short') && s.stop != null) {
+        const sy = toY(s.stop)
+        if (sy != null && Math.abs(y - sy) <= HANDLE_HIT && x >= Math.min(pts[0].x, pts[1].x) - 10) {
+          return { id: s.id, stop: true }
+        }
+      }
+      const [a, b] = pts
+      const near =
+        s.kind === 'hline' ? Math.abs(y - a.y) <= 6
+        : s.kind === 'vline' ? Math.abs(x - a.x) <= 6
+        : s.kind === 'text' ? Math.hypot(x - a.x, y - a.y) <= 24
+        : b && (s.kind === 'rect' || s.kind === 'fib' || s.kind === 'long' || s.kind === 'short')
+          ? x >= Math.min(a.x, b.x) - 4 && x <= Math.max(a.x, b.x) + 4 &&
+            y >= Math.min(a.y, b.y) - 4 && y <= Math.max(a.y, b.y) + 4
+        : b ? distToSegment(x, y, a, b) <= 6
+        : false
+      if (near) return { id: s.id }
+    }
+    return null
+  }
+
+  // ── pointer handling ──
+  const local = (e: PointerEvent): Px => {
+    const r = wrapRef.current!.getBoundingClientRect()
+    return { x: e.clientX - r.left, y: e.clientY - r.top }
+  }
+
+  /** Returns true when the gesture belonged to drawing, so the caller knows to
+   *  keep it away from the chart. Anything else is left alone. */
+  const onPointerDown = (e: PointerEvent): boolean => {
+    if (!api) return false
+    const { x, y } = local(e)
+
+    if (tool === 'cursor') {
+      const hit = hitTest(x, y)
+      // A click on empty space deselects, but must still reach the chart --
+      // otherwise panning would die everywhere except on top of a shape.
+      if (!hit) { if (selectedId) onSelect(null); return false }
+      onSelect(hit.id)
+      const s = shapes.find(sh => sh.id === hit.id)!
+      if (hit.stop) drag.current = { kind: 'stop', id: s.id }
+      else if (hit.handle != null) drag.current = { kind: 'handle', id: s.id, index: hit.handle }
+      else {
+        const a = anchorAt(x, y)
+        drag.current = { kind: 'move', id: s.id, grabT: new Date(a.t).getTime(), grabP: a.p, orig: s }
+      }
+      return true
+    }
+
+    // Placing a new shape.
+    const kind = tool as ToolKind
+    const a = anchorAt(x, y)
+    if (!pending) {
+      const need = ANCHOR_COUNT[kind]
+      const text = kind === 'text' ? (window.prompt('Text:') ?? '').trim() : undefined
+      if (kind === 'text' && !text) { onToolFinished(); return true }
+      const shape: Shape = {
+        id: Math.random().toString(36).slice(2, 10),
+        kind, points: [a], color, width: 2, text,
+      }
+      if (need === 1) { onChange([...shapes, shape]); onToolFinished(); return true }
+      setPending({ ...shape, points: [a, a] })
+    } else {
+      const done: Shape = { ...pending, points: [pending.points[0], a] }
+      // A position tool needs a stop; default it to the far side of entry so
+      // the R:R chip means something immediately, then drag it.
+      if (done.kind === 'long' || done.kind === 'short') {
+        const entry = done.points[0].p, target = done.points[1].p
+        done.stop = entry - (target - entry) / 2
+      }
+      onChange([...shapes, done])
+      setPending(null)
+      onToolFinished()
+    }
+    return true
+  }
+
+  const onPointerMove = (e: PointerEvent): boolean => {
+    if (!api) return false
+    const { x, y } = local(e)
+    setCursor({ x, y })
+
+    const d = drag.current
+    if (d) {
+      const a = anchorAt(x, y)
+      const next = shapes.map(s => {
+        if (s.id !== d.id) return s
+        if (d.kind === 'handle') {
+          const points = s.points.slice()
+          points[d.index] = a
+          return { ...s, points }
+        }
+        if (d.kind === 'stop') return { ...s, stop: a.p }
+        // Move: shift every anchor by the same time/price delta.
+        const dt = new Date(a.t).getTime() - d.grabT
+        const dp = a.p - d.grabP
+        return {
+          ...s,
+          points: d.orig.points.map(pt => ({
+            t: nearestBarIso(new Date(pt.t).getTime() + dt),
+            p: pt.p + dp,
+          })),
+          stop: d.orig.stop != null ? d.orig.stop + dp : undefined,
+        }
+      })
+      onChange(next)
+      return true
+    }
+
+    if (pending) {
+      setPending({ ...pending, points: [pending.points[0], anchorAt(x, y)] })
+      return true
+    }
+    return false
+  }
+
+  const nearestBarIso = (ms: number): string => {
+    if (bars.length === 0) return new Date(ms).toISOString()
+    let best = bars[0], bd = Infinity
+    for (const b of bars) {
+      const delta = Math.abs(new Date(b.timestamp).getTime() - ms)
+      if (delta < bd) { bd = delta; best = b }
+    }
+    return best.timestamp
+  }
+
+  const onPointerUp = (): boolean => {
+    if (drag.current) { drag.current = null; return true }
+    return false
+  }
+
+  // Delete / Escape, the two keys every drawing tool has.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        e.preventDefault()
+        onChange(shapes.filter(s => s.id !== selectedId))
+        onSelect(null)
+      } else if (e.key === 'Escape') {
+        setPending(null)
+        onSelect(null)
+        onToolFinished()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId, shapes, onChange, onSelect, onToolFinished])
+
+  // Pointer handling lives on the PARENT, in the capture phase, and the layer
+  // itself is permanently pointer-events: none.
+  //
+  // The layer used to take pointer events whenever any shape existed. Because
+  // it covers the whole price pane, that silently ate the chart's wheel-zoom
+  // and drag-to-pan -- the chart never saw them. Capturing instead lets each
+  // gesture be classified first: only actual drawing interactions are stopped,
+  // and everything else (zoom, pan, crosshair) reaches the chart untouched.
+  useEffect(() => {
+    const parent = wrapRef.current?.parentElement
+    if (!parent) return
+    const stop = (e: PointerEvent) => { e.preventDefault(); e.stopPropagation() }
+    const down = (e: PointerEvent) => { if (onPointerDown(e)) stop(e) }
+    const move = (e: PointerEvent) => { if (onPointerMove(e)) stop(e) }
+    const up = (e: PointerEvent) => { if (onPointerUp()) stop(e) }
+    const leave = () => setCursor(null)
+    // The layer takes no pointers, so the crosshair cursor has to live on the
+    // element that does.
+    parent.style.cursor = tool === 'cursor' ? '' : 'crosshair'
+    parent.addEventListener('pointerdown', down, true)
+    parent.addEventListener('pointermove', move, true)
+    parent.addEventListener('pointerup', up, true)
+    parent.addEventListener('pointerleave', leave, true)
+    return () => {
+      parent.removeEventListener('pointerdown', down, true)
+      parent.removeEventListener('pointermove', move, true)
+      parent.removeEventListener('pointerup', up, true)
+      parent.removeEventListener('pointerleave', leave, true)
+      parent.style.cursor = ''
+    }
+  })
+
+  return (
+    <div
+      ref={wrapRef}
+      className="absolute left-0 right-0 top-0"
+      style={{
+        // Only as tall as the price pane -- see measure(). Falls back to
+        // filling the container so the layer is never zero-height.
+        height: paneH || undefined,
+        bottom: paneH ? undefined : 0,
+        pointerEvents: 'none',
+      }}
+    >
+      <canvas ref={canvasRef} className="w-full h-full" />
+    </div>
+  )
+}

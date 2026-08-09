@@ -10,6 +10,7 @@ import type { Indicators } from '../../hooks/useIndicators'
 import type { CustomSeries } from '../../api/custom'
 import type { StrategyChartData } from '../../api/strategyChart'
 import { VertLinesPrimitive, type VertMarker } from './vertLinePrimitive'
+import { DayBandsPrimitive, buildDayBands } from './dayBandsPrimitive'
 
 type ChartType = 'candlestick' | 'line'
 
@@ -39,9 +40,16 @@ interface Props {
   /** Fired when the chart is clicked while labelling is armed. Reports the bar
    *  the click landed on, so a mark always snaps to a real bar. */
   onBarClick?: (bar: { timestamp: string; close: number }) => void
+  /** Hands out the chart + price series once they exist, so the drawing layer
+   *  can convert between data and pixels. Fires again after every rebuild,
+   *  because the series object is recreated each time. */
+  onApiReady?: (api: { chart: any; series: any } | null) => void
 }
 
-const toTime = (ts: string): UTCTimestamp => {
+/** ISO timestamp -> the chart's time coordinate. Exported so anything placing
+ *  shapes uses the SAME conversion the series data used -- two copies of this
+ *  drifting apart would misplace every annotation by a timezone offset. */
+export const toTime = (ts: string): UTCTimestamp => {
   const d = new Date(ts)
   return Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 1000) as UTCTimestamp
 }
@@ -83,7 +91,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -102,6 +110,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   // bound once at mount, so it reads both through refs.
   const clickRef = useRef(onBarClick)
   clickRef.current = onBarClick
+
   const barsRef = useRef<OHLCBar[]>(data)
   barsRef.current = data
 
@@ -346,6 +355,17 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
     }
 
+    // Alternating session shading. Attached before the marker primitives so it
+    // paints underneath them, and skipped entirely for single-day or daily data
+    // where per-day bands carry no information.
+    if (priceRef.current) {
+      const bands = buildDayBands(data, toTime)
+      if (bands.length) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        try { (priceRef.current as any).attachPrimitive(new DayBandsPrimitive(bands)) } catch { /* noop */ }
+      }
+    }
+
     // Pane sizing via stretch factors — price always dominant, oscillators compact.
     try {
       const panes = c.panes()
@@ -370,6 +390,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     }
     emitReadout()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    onApiReady?.({ chart: c, series: priceRef.current })
   }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so

@@ -1,9 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { RangeTabs } from './RangeTabs'
-import { LWChart } from './LWChart'
+import { LWChart, toTime } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
 import { DateRangePicker } from './DateRangePicker'
 import { DatasetTimeScrubber } from './DatasetTimeScrubber'
+import { DrawingLayer } from './drawing/DrawingLayer'
+import { DrawingToolbar } from './drawing/DrawingToolbar'
+import type { Shape, Tool } from './drawing/types'
 import { ChunkProgress } from './ChunkProgress'
 import { useStockData } from '../../hooks/useStockData'
 import { useHistoryJob } from '../../hooks/useHistoryJob'
@@ -83,6 +86,11 @@ interface Props {
    *  names travel -- the values are recomputed against the full dataset at
    *  export time rather than the view's windowed slice. */
   onStudiesChange?: (studies: string[]) => void
+  /** Lab Platform: hand-drawn annotations for the active dataset, plus a way
+   *  to add to them. Held by the page (which persists them) so the chart only
+   *  has to turn clicks into shapes. */
+  drawings?: Shape[]
+  onDrawingsChange?: (d: Shape[]) => void
 }
 
 const OVERLAY_ITEMS = [
@@ -117,6 +125,7 @@ function sliceIndicators<T extends Record<string, { time: string[]; values: (num
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
   onWindowChange, labMode = false, labelMarks, onLabelMarksChange, labelSetName, onStudiesChange,
+  drawings, onDrawingsChange,
 }: Props) {
   const { setIdentity, setValues, floating, setFloating } = useChartReadout()
   const isDatasetMode = !!dataset
@@ -498,6 +507,36 @@ export function StockChart({
     )
   }
 
+  // ── Drawing: a full interaction layer over the chart (select, drag,
+  //    handles, magnet), not just click-to-place. ──
+  const [drawTool, setDrawTool] = useState<Tool>('cursor')
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
+  const [magnet, setMagnet] = useState(true)
+  const [drawColor, setDrawColor] = useState('#f59e0b')
+  const [chartApi, setChartApi] = useState<{ chart: any; series: any } | null>(null)
+  const canDraw = isDatasetMode && !!onDrawingsChange
+  useEffect(() => { if (!canDraw) { setDrawTool('cursor'); setSelectedShapeId(null) } }, [canDraw])
+  // A click can only mean one thing, so arming one mode disarms the other.
+  useEffect(() => { if (drawTool !== 'cursor') setLabelArmed(false) }, [drawTool])
+  useEffect(() => { if (labelArmed) setDrawTool('cursor') }, [labelArmed])
+
+  const selectedShape = (drawings ?? []).find(sh => sh.id === selectedShapeId) ?? null
+  const updateSelected = (patch: Partial<Shape>) => {
+    if (!onDrawingsChange || !selectedShapeId) return
+    onDrawingsChange((drawings ?? []).map(sh => (sh.id === selectedShapeId ? { ...sh, ...patch } : sh)))
+  }
+  const deleteSelected = () => {
+    if (!onDrawingsChange || !selectedShapeId) return
+    onDrawingsChange((drawings ?? []).filter(sh => sh.id !== selectedShapeId))
+    setSelectedShapeId(null)
+  }
+  const clearAllDrawings = () => {
+    if (!onDrawingsChange || !drawings?.length) return
+    if (window.confirm(`Remove all ${drawings.length} drawings from this dataset?`)) {
+      onDrawingsChange([]); setSelectedShapeId(null)
+    }
+  }
+
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
@@ -515,7 +554,7 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
@@ -857,9 +896,40 @@ export function StockChart({
         </div>
       </div>
 
-      {/* Chart fills everything left over -- no padding, no overlay. */}
+      {/* Chart fills everything left over. The drawing rail and interaction
+          layer sit on top of it, not inside it, so the chart keeps its own
+          pan/zoom while shapes get real pointer handling. */}
       <div className={`relative ${isMobile ? 'h-[62vh] min-h-[340px]' : 'flex-1 min-h-0'}`}>
         {body}
+        {canDraw && chartData.length > 0 && (
+          <>
+            <DrawingLayer
+              api={chartApi}
+              bars={chartData}
+              shapes={drawings ?? []}
+              onChange={onDrawingsChange!}
+              tool={drawTool}
+              onToolFinished={() => setDrawTool('cursor')}
+              selectedId={selectedShapeId}
+              onSelect={setSelectedShapeId}
+              magnet={magnet}
+              color={drawColor}
+            />
+            <DrawingToolbar
+              tool={drawTool}
+              onTool={setDrawTool}
+              magnet={magnet}
+              onMagnet={setMagnet}
+              color={drawColor}
+              onColor={setDrawColor}
+              selected={selectedShape}
+              onUpdateSelected={updateSelected}
+              onDeleteSelected={deleteSelected}
+              count={drawings?.length ?? 0}
+              onClearAll={clearAllDrawings}
+            />
+          </>
+        )}
       </div>
 
       {/* Dataset time scrubber — the selection is the range tab's window, and

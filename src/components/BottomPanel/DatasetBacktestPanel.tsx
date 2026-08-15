@@ -47,12 +47,12 @@ export function DatasetBacktestPanel({ backtest, windowStart, windowEnd, cutoff 
   // so string comparison silently dropped the final day's trades even with the
   // window at MAX.
   const ms = (t: string) => new Date(t).getTime()
-  const windowed = windowStart && windowEnd
+  const inWindow = windowStart && windowEnd
     ? allRows.filter(r => ms(r.time) >= ms(windowStart) && ms(r.time) <= ms(windowEnd))
     : allRows
   // During replay the list stops at the playhead, so the trades and the P&L
   // land as the bars do instead of showing the whole run up front.
-  const rows = cutoff ? windowed.filter(r => ms(r.time) <= ms(cutoff)) : windowed
+  const rows = cutoff ? inWindow.filter(r => ms(r.time) <= ms(cutoff)) : inWindow
   const sum = (rs: typeof allRows) => {
     let t = 0, n = 0
     for (const r of rs) { if (r.pnl != null) { t += r.pnl; n++ } }

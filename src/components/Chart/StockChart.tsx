@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { usePersistentState } from '../../hooks/usePersistentState'
+import { Spinner } from '../common/Spinner'
 import { RangeTabs } from './RangeTabs'
 import { LWChart, toTime } from './LWChart'
 import { ReplayTransport } from './ReplayTransport'
@@ -113,14 +115,20 @@ const ALL_ITEMS = [...OVERLAY_ITEMS, ...OSC_ITEMS]
 const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8]
 
 // Slice a {time, values} series to the first n points (for replay reveal).
-function sliceSeries<T extends { time: string[]; values: (number | null)[] }>(s: T, n: number): T {
-  return { ...s, time: s.time.slice(0, n), values: s.values.slice(0, n) }
+function truncateSeries<T extends { time: string[]; values: (number | null)[] }>(s: T, cutoffMs: number): T {
+  const keep: number[] = []
+  for (let i = 0; i < s.time.length; i++) {
+    if (new Date(s.time[i]).getTime() <= cutoffMs) keep.push(i)
+  }
+  return { ...s, time: keep.map(i => s.time[i]), values: keep.map(i => s.values[i]) }
 }
-function sliceIndicators<T extends Record<string, { time: string[]; values: (number | null)[] }>>(ind: T, n: number): T {
+
+function truncateIndicators<T extends Record<string, { time: string[]; values: (number | null)[] }>>(ind: T, cutoffMs: number): T {
   const out = {} as T
-  for (const k of Object.keys(ind) as (keyof T)[]) out[k] = sliceSeries(ind[k], n)
+  for (const k of Object.keys(ind) as (keyof T)[]) out[k] = truncateSeries(ind[k], cutoffMs)
   return out
 }
+
 
 export function StockChart({
   isMobile = false, ticker, range, onRangeChange, selectedStrategy, onReplayCutoff, dataset, datasetBacktest,
@@ -218,7 +226,7 @@ export function StockChart({
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
   const [showVolume, setShowVolume] = useState(true)
-  const [showDayBands, setShowDayBands] = useState(true)
+  const [showDayBands, setShowDayBands] = usePersistentState('tsp.chart.dayBands', false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -486,20 +494,38 @@ export function StockChart({
   const cutoffMs = replaySlicing && replayBars[revealN - 1]
     ? new Date(replayBars[revealN - 1].timestamp).getTime()
     : Infinity
-  const displayData = replaySlicing ? replayBars.slice(0, revealN) : chartData
-  const displayIndicators = replaySlicing ? sliceIndicators(indicators, revealN) : indicators
-  const displayCustom = replaySlicing ? customSeries.map(s => sliceSeries(s, revealN)) : customSeries
+  // The chart always gets the whole series; replay only limits how much of it
+  // is drawn. Handing it a slice is what made replay unzoomable and undraggable
+  // -- at bar two there was literally nothing else on the time axis.
+  const displayData = chartData
+  const revealCount = useMemo(() => {
+    if (!replaySlicing) return undefined
+    let n = 0
+    for (const b of chartData) {
+      if (new Date(b.timestamp).getTime() > cutoffMs) break
+      n++
+    }
+    return n
+  }, [replaySlicing, chartData, cutoffMs])
+  // Overlays are truncated by TIME, not by index: indicators span the whole
+  // dataset while the replay counter walks the selected window, so the two
+  // index spaces do not line up.
+  const displayIndicators = replaySlicing ? truncateIndicators(indicators, cutoffMs) : indicators
+  const displayCustom = useMemo(
+    () => (replaySlicing ? customSeries.map(s => truncateSeries(s, cutoffMs)) : customSeries),
+    [replaySlicing, customSeries, cutoffMs],
+  )
   const displayStrategy = useMemo(() => {
     if (!replaySlicing || !visibleStrategyData) return visibleStrategyData
     return {
       ...visibleStrategyData,
-      lines: visibleStrategyData.lines.map(ln => sliceSeries(ln, revealN)),
+      lines: visibleStrategyData.lines.map(ln => truncateSeries(ln, cutoffMs)),
       signals: visibleStrategyData.signals.filter(s => new Date(s.time).getTime() <= cutoffMs),
     }
-  }, [replaySlicing, revealN, cutoffMs, visibleStrategyData])
+  }, [replaySlicing, cutoffMs, visibleStrategyData])
 
   // Report the replay playhead time so the metrics panel can show trades live.
-  const replayCutoffTs = replaySlicing && displayData.length ? displayData[displayData.length - 1].timestamp : null
+  const replayCutoffTs = replaySlicing && replayBars[revealN - 1] ? replayBars[revealN - 1].timestamp : null
   useEffect(() => { onReplayCutoff?.(replayCutoffTs) }, [replayCutoffTs, onReplayCutoff])
 
   // Publish chart identity for the readout consumers (Market Insight panel and
@@ -569,10 +595,11 @@ export function StockChart({
   const toggleId = (id: string) =>
     setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
 
-  const status = (msg: string, tone: 'muted' | 'live' | 'error' = 'muted') => (
-    <div className={`h-full flex items-center justify-center text-sm ${
+  const status = (msg: string, tone: 'muted' | 'live' | 'error' = 'muted', busy = false) => (
+    <div className={`h-full flex items-center justify-center gap-2 text-sm ${
       tone === 'error' ? 'text-red-400' : tone === 'live' ? 'text-green-400' : 'text-gray-600'
     }`}>
+      {busy && <Spinner size={16} />}
       {msg}
     </div>
   )
@@ -580,15 +607,15 @@ export function StockChart({
   const body = (() => {
     if (noDatasetSelected) return status('Select a dataset above to view its chart')
     if (isDatasetMode) {
-      if (datasetLoading) return status('Loading dataset…')
+      if (datasetLoading) return status('Loading dataset…', 'muted', true)
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} showDayBands={showDayBands} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} showDayBands={showDayBands} revealCount={revealCount} />
     }
     if (isLive) {
-      if (!connected && chartData.length === 0) return status('Connecting to live feed…')
+      if (!connected && chartData.length === 0) return status('Connecting to live feed…', 'muted', true)
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
-      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} />
+      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} revealCount={revealCount} />
     }
     // Long pulls take several sequential upstream requests, so they get a
     // determinate ring rather than an indefinite "Loading…".
@@ -602,10 +629,10 @@ export function StockChart({
       )
     }
     if (longPull && job.error) return status(job.error, 'error')
-    if (loading) return status('Loading…')
+    if (loading) return status('Loading…', 'muted', true)
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} revealCount={revealCount} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (

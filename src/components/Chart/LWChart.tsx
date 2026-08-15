@@ -57,6 +57,10 @@ interface Props {
    *  still will not scroll into time that has no slots at all, so blank space
    *  has to exist as real whitespace points. 0 disables the padding. */
   padBars?: number
+  /** Alternating trading-day shading behind the candles. On by default; the
+   *  bands are helpful on a multi-day intraday chart and pure noise once you
+   *  are zoomed into a single session. */
+  showDayBands?: boolean
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -104,7 +108,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0 }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0, showDayBands = true }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -453,7 +457,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // Alternating session shading. Attached before the marker primitives so it
     // paints underneath them, and skipped entirely for single-day or daily data
     // where per-day bands carry no information.
-    if (priceRef.current) {
+    if (priceRef.current && showDayBands) {
       const bands = buildDayBands(data, toTime)
       if (bands.length) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -527,7 +531,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     onApiReady?.({ chart: c, series: priceRef.current })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels, showDayBands])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so
   // the chart gets its whole box.

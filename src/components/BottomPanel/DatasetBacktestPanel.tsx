@@ -6,12 +6,15 @@ interface Props {
    *  range-tab/custom-window cutoff, instead of the whole dataset's history. */
   windowStart?: string | null
   windowEnd?: string | null
+  /** Bar-replay playhead. Trades after it are withheld so the console fills in
+   *  as the replay runs rather than revealing the whole result immediately. */
+  cutoff?: string | null
 }
 
 /** Lab Platform: transactions + total P&L for the selected backtest run
  *  against the active dataset. Same buy/sell pairing + layout as the live
  *  Strategy Metrics panel. */
-export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props) {
+export function DatasetBacktestPanel({ backtest, windowStart, windowEnd, cutoff }: Props) {
   if (!backtest) return (
     <div className="flex-1 p-4 flex items-center justify-center">
       <p className="text-xs text-gray-600">Run a backtest (left) and select it to see results here</p>
@@ -44,9 +47,12 @@ export function DatasetBacktestPanel({ backtest, windowStart, windowEnd }: Props
   // so string comparison silently dropped the final day's trades even with the
   // window at MAX.
   const ms = (t: string) => new Date(t).getTime()
-  const rows = windowStart && windowEnd
+  const inWindow = windowStart && windowEnd
     ? allRows.filter(r => ms(r.time) >= ms(windowStart) && ms(r.time) <= ms(windowEnd))
     : allRows
+  // During replay the list stops at the playhead, so the trades and the P&L
+  // land as the bars do instead of showing the whole run up front.
+  const rows = cutoff ? inWindow.filter(r => ms(r.time) <= ms(cutoff)) : inWindow
   const sum = (rs: typeof allRows) => {
     let t = 0, n = 0
     for (const r of rs) { if (r.pnl != null) { t += r.pnl; n++ } }

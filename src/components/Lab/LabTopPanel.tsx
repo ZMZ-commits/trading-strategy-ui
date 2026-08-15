@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePersistentState } from '../../hooks/usePersistentState'
+import { Spinner, LoadingBlock } from '../common/Spinner'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { ResizeHandle } from '../common/ResizeHandle'
@@ -34,8 +35,12 @@ const STATUS_COLOR: Record<string, string> = {
 
 function StatusBadge({ status, progress }: { status: string; progress?: { done: number; total: number } }) {
   const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null
+  // Anything still working spins, so an in-flight job is never mistaken for a
+  // stalled one.
+  const busy = status === 'running' || status === 'pending'
   return (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_COLOR[status] ?? 'bg-gray-700 text-gray-400'}`}>
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 inline-flex items-center gap-1 ${STATUS_COLOR[status] ?? 'bg-gray-700 text-gray-400'}`}>
+      {busy && <Spinner size={8} />}
       {status}{status === 'running' && pct != null ? ` ${pct}%` : ''}
     </span>
   )
@@ -101,7 +106,12 @@ export function LabTopPanel({
   const [interval, setInterval_] = useState<Interval>('1d')
   const [creating, setCreating] = useState(false)
 
-  const refreshDatasets = useCallback(() => { listDatasets().then(setDatasets).catch(() => {}) }, [])
+  const [datasetsLoaded, setDatasetsLoaded] = useState(false)
+  const refreshDatasets = useCallback(() => {
+    listDatasets()
+      .then(d => { setDatasets(d); setDatasetsLoaded(true) })
+      .catch(() => setDatasetsLoaded(true))
+  }, [])
   useEffect(() => {
     refreshDatasets()
     const id = window.setInterval(refreshDatasets, POLL_MS)
@@ -328,7 +338,7 @@ export function LabTopPanel({
           type="submit" disabled={creating}
           className="w-full py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium"
         >
-          {creating ? 'Creating…' : 'Create'}
+          {creating ? (<span className="inline-flex items-center gap-1.5"><Spinner size={12} />Creating…</span>) : 'Create'}
         </button>
         {error && <p className="text-[11px] text-red-400">{error}</p>}
       </form>
@@ -340,7 +350,9 @@ export function LabTopPanel({
     <div className="flex flex-col h-full overflow-hidden">
       <SectionLabel text={`Datasets${datasets.length ? ` (${datasets.length})` : ''}`} />
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {datasets.length === 0 ? (
+        {!datasetsLoaded ? (
+          <LoadingBlock label="Loading datasets…" />
+        ) : datasets.length === 0 ? (
           <p className="px-3 py-2 text-[11px] text-gray-600">None yet — create one to the left</p>
         ) : (
           <ul>
@@ -540,7 +552,9 @@ export function LabTopPanel({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {backtests.length === 0 ? (
+            {activeDatasetId && loadedFor.current !== activeDatasetId ? (
+              <LoadingBlock label="Loading runs…" />
+            ) : backtests.length === 0 ? (
               <p className="px-3 py-2 text-[11px] text-gray-600">No runs yet</p>
             ) : (
               <ul>

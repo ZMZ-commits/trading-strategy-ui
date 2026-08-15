@@ -31,7 +31,9 @@ export default function App() {
 
   // Lab Platform: which sidebar view is active, and (in Lab mode) the stored
   // dataset + backtest run currently driving the main chart + bottom panel.
-  const [sidebarView, setSidebarView] = useState<SidebarView>('trading')
+  // Remembered, so a reload returns to the tab you were working in instead of
+  // dropping you back on Trading every time.
+  const [sidebarView, setSidebarView] = usePersistentState<SidebarView>('tsp.sidebarView', 'trading')
   const [activeDataset, setActiveDataset] = useState<DatasetMeta | null>(null)
   const [activeBacktest, setActiveBacktest] = useState<BacktestMeta | null>(null)
 

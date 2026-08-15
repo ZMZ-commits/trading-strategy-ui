@@ -61,6 +61,11 @@ interface Props {
    *  bands are helpful on a multi-day intraday chart and pure noise once you
    *  are zoomed into a single session. */
   showDayBands?: boolean
+  /** Bar replay: how many bars are revealed so far. Bars past it are emitted
+   *  as WHITESPACE rather than dropped, so the time axis still spans the whole
+   *  series and the chart stays zoomable and pannable while it fills in.
+   *  Truncating the data instead left replay with nothing to scroll. */
+  revealCount?: number
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -108,7 +113,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0, showDayBands = true }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0, showDayBands = true, revealCount }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -290,17 +295,22 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     })()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const withPad = (rows: any[]) => (pads.lead.length ? [...pads.lead, ...rows, ...pads.trail] : rows)
+    const reveal = revealCount == null ? data.length : Math.max(0, Math.min(revealCount, data.length))
 
     // Price (pane 0)
     if (type === 'candlestick') {
       const ps = add(CandlestickSeries, {
         upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
       })
-      ps.setData(withPad(data.map(b => ({ time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close }))))
+      ps.setData(withPad(data.map((b, i) => (i < reveal
+        ? { time: toTime(b.timestamp), open: b.open, high: b.high, low: b.low, close: b.close }
+        : { time: toTime(b.timestamp) }))))
       priceRef.current = ps
     } else {
       const ps = add(AreaSeries, { lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.35)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2 })
-      ps.setData(withPad(data.map(b => ({ time: toTime(b.timestamp), value: b.close }))))
+      ps.setData(withPad(data.map((b, i) => (i < reveal
+        ? { time: toTime(b.timestamp), value: b.close }
+        : { time: toTime(b.timestamp) }))))
       priceRef.current = ps
     }
 
@@ -308,7 +318,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     if (showVolume) {
       const v = add(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: '' })
       v.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-      v.setData(data.map(b => ({ time: toTime(b.timestamp), value: b.volume, color: b.close >= b.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)' })))
+      v.setData(data.map((b, i) => (i < reveal
+        ? { time: toTime(b.timestamp), value: b.volume, color: b.close >= b.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)' }
+        : { time: toTime(b.timestamp) })))
     }
 
     // Overlays (pane 0)
@@ -531,7 +543,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     onApiReady?.({ chart: c, series: priceRef.current })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels, showDayBands])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels, showDayBands, revealCount])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so
   // the chart gets its whole box.

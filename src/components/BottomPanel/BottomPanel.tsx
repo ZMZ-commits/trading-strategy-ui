@@ -47,7 +47,7 @@ export function BottomPanel({
     ? <DatasetTable dataset={dataset} windowStart={windowStart} windowEnd={windowEnd} />
     : noDatasetSelected ? empty : <StockDetails ticker={ticker} />
   const rightContent = dataset
-    ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} windowStart={windowStart} windowEnd={windowEnd} />
+    ? <DatasetBacktestPanel backtest={datasetBacktest ?? null} windowStart={windowStart} windowEnd={windowEnd} cutoff={replayCutoff} />
     : noDatasetSelected ? empty : <StrategyMetrics strategy={selectedStrategy} ticker={ticker} range={range} cutoff={replayCutoff} />
 
   // ── Mobile/tablet: stack the two panels; no mouse-drag handles ──

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   createChart, ColorType, CrosshairMode, LineStyle,
   CandlestickSeries, AreaSeries, LineSeries, HistogramSeries,
@@ -57,6 +57,10 @@ interface Props {
    *  still will not scroll into time that has no slots at all, so blank space
    *  has to exist as real whitespace points. 0 disables the padding. */
   padBars?: number
+  /** Alternating trading-day shading behind the candles. On by default; the
+   *  bands are helpful on a multi-day intraday chart and pure noise once you
+   *  are zoomed into a single session. */
+  showDayBands?: boolean
 }
 
 /** ISO timestamp -> the chart's time coordinate. Exported so anything placing
@@ -104,7 +108,7 @@ const OVERLAYS: { key: string; color: string; label: string; dashed?: boolean }[
   { key: 'vwap', color: '#eab308', label: 'VWAP' },
 ]
 
-export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0 }: Props) {
+export function LWChart({ data, type, showVolume, indicators, oscillators, custom = [], strategy, fitKey, onReadout, labels, onBarClick, onApiReady, viewRange, onVisibleRangeChange, padBars = 0, showDayBands = true }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const chart = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,6 +132,16 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   barsRef.current = data
   const rangeCbRef = useRef(onVisibleRangeChange)
   rangeCbRef.current = onVisibleRangeChange
+  /** data mapped to chart time, once per data change.
+   *
+   *  Recomputing this inside the scroll handler meant thousands of Date
+   *  constructions every frame, which made dragging stutter badly. */
+  const timesRef = useRef<number[]>([])
+  timesRef.current = useMemo(() => data.map(b => toTime(b.timestamp) as number), [data])
+  /** Last window handed upstream, so an unchanged window never fires a React
+   *  state update -- redundant re-renders mid-drag are what make the scrubber
+   *  jitter. */
+  const lastReported = useRef<[string | null, string | null]>([null, null])
   /** Pending view-position retries, cleared whenever the effect re-runs so a
    *  stale retry can never fight a newer window. */
   const retryTimers = useRef<number[]>([])
@@ -192,35 +206,36 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
         const cb = rangeCbRef.current
         if (!cb) return
         const r = c.timeScale().getVisibleRange()
-        if (!r) { cb(null, null); return }
+        if (!r) return
         const from = r.from as number
         const to = r.to as number
-        let first: string | null = null
-        let last: string | null = null
-        for (const b of barsRef.current) {
-          const t = toTime(b.timestamp)
-          if (t >= from && t <= to) {
-            if (first === null) first = b.timestamp
-            last = b.timestamp
+        const times = timesRef.current
+        const bars = barsRef.current
+        if (times.length === 0) return
+
+        // Binary search both ends instead of scanning every bar: the handler
+        // runs on every animation frame of a drag, and a linear scan over
+        // thousands of bars per frame is what turned scrolling into a stutter.
+        const lowerBound = (target: number) => {
+          let lo = 0, hi = times.length
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1
+            if (times[mid] < target) lo = mid + 1; else hi = mid
           }
+          return lo
         }
+        const i = lowerBound(from)
+        let j = lowerBound(to)
+        if (j >= times.length || times[j] > to) j--
+        const first = i < times.length && times[i] <= to ? bars[i].timestamp : null
+        const last = j >= 0 && j >= i ? bars[j].timestamp : null
+        const [pf, pl] = lastReported.current
+        if (first === pf && last === pl) return
+        lastReported.current = [first, last]
         cb(first, last)
       })
     })
-    // Clicking reports the nearest bar rather than a raw coordinate, so a mark
-    // can never land between bars.
-    c.subscribeClick((p: any) => {
-      const cb = clickRef.current
-      if (!cb || p?.time == null) return
-      const bars = barsRef.current
-      let best: OHLCBar | null = null
-      let bestDelta = Infinity
-      for (const b of bars) {
-        const d = Math.abs(toTime(b.timestamp) - (p.time as number))
-        if (d < bestDelta) { bestDelta = d; best = b }
-      }
-      if (best) cb({ timestamp: best.timestamp, close: best.close })
-    })
+
     return () => {
       for (const t of retryTimers.current) window.clearTimeout(t)
       retryTimers.current = []
@@ -442,7 +457,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // Alternating session shading. Attached before the marker primitives so it
     // paints underneath them, and skipped entirely for single-day or daily data
     // where per-day bands carry no information.
-    if (priceRef.current) {
+    if (priceRef.current && showDayBands) {
       const bands = buildDayBands(data, toTime)
       if (bands.length) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -516,7 +531,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     onApiReady?.({ chart: c, series: priceRef.current })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels])
+  }, [data, type, showVolume, indicators, oscillators, custom, strategy, fitKey, labels, showDayBands])
 
   // Nothing overlays the plot any more -- the readout is rendered outside, so
   // the chart gets its whole box.

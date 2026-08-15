@@ -218,6 +218,7 @@ export function StockChart({
 
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick')
   const [showVolume, setShowVolume] = useState(true)
+  const [showDayBands, setShowDayBands] = useState(true)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -582,12 +583,12 @@ export function StockChart({
       if (datasetLoading) return status('Loading dataset…')
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
-      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} />
+      return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} showDayBands={showDayBands} />
     }
     if (isLive) {
       if (!connected && chartData.length === 0) return status('Connecting to live feed…')
       if (chartData.length === 0) return status('● LIVE — waiting for trades (market may be closed)', 'live')
-      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} onReadout={setValues} />
+      return <LWChart data={chartData} type={effectiveType} showVolume={false} indicators={{}} oscillators={[]} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} />
     }
     // Long pulls take several sequential upstream requests, so they get a
     // determinate ring rather than an indefinite "Loading…".
@@ -604,7 +605,7 @@ export function StockChart({
     if (loading) return status('Loading…')
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -692,6 +693,15 @@ export function StockChart({
                 }`}
               >
                 Vol
+              </button>
+              <button
+                onClick={() => setShowDayBands(v => !v)}
+                title="Toggle trading-day shading and date labels"
+                className={`px-2.5 py-1.5 text-xs rounded border border-border transition-colors ${
+                  showDayBands ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:bg-gray-700 active:bg-gray-700'
+                }`}
+              >
+                Days
               </button>
 
               <button

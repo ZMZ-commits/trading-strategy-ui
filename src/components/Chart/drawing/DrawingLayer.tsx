@@ -178,7 +178,10 @@ export function DrawingLayer({
   // Repaint on pan/zoom, since shape pixels are derived from the chart scales.
   useEffect(() => {
     if (!api) return
-    const redraw = () => { measure(); force(n => n + 1) }
+    // Repaint only. measure() reads the DOM (getBoundingClientRect plus a
+    // querySelector), and doing that on every frame of a drag was pure waste --
+    // the pane's height does not change while panning, only on resize.
+    const redraw = () => force(n => n + 1)
     api.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw)
     return () => { try { api.chart.timeScale().unsubscribeVisibleLogicalRangeChange(redraw) } catch { /* noop */ } }
   }, [api])

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { usePersistentState } from '../../hooks/usePersistentState'
 import { useResizable } from '../../hooks/useResizable'
 import { useHResizable } from '../../hooks/useHResizable'
 import { ResizeHandle } from '../common/ResizeHandle'
@@ -167,15 +168,54 @@ export function LabTopPanel({
     }
   }
 
+  // Last selection, so a reload comes back to the view you left rather than to
+  // an empty Lab. IDs only -- storing the objects would resurrect a dataset or
+  // run that has since been deleted.
+  const [savedDatasetId, setSavedDatasetId] = usePersistentState<string | null>('tsp.lab.datasetId', null)
+  const [savedBacktestId, setSavedBacktestId] = usePersistentState<string | null>('tsp.lab.backtestId', null)
+  /** Which dataset's runs have actually come back, so restore can tell "no runs
+   *  yet" apart from "not fetched yet" and not give up too early. */
+  const loadedFor = useRef<string | null>(null)
+
   const refreshBacktests = useCallback(() => {
     if (!activeDatasetId) { setBacktests([]); return }
-    listBacktests(activeDatasetId).then(setBacktests).catch(() => {})
+    const id = activeDatasetId
+    listBacktests(id).then(b => { setBacktests(b); loadedFor.current = id }).catch(() => {})
   }, [activeDatasetId])
   useEffect(() => {
     refreshBacktests()
     const id = window.setInterval(refreshBacktests, POLL_MS)
     return () => window.clearInterval(id)
   }, [refreshBacktests])
+
+  // Restore the last dataset on first load: the saved one if it still exists,
+  // otherwise the first ready one, otherwise nothing. Runs once -- after that
+  // the selection is the user's to make, including deselecting to blank.
+  const restoredDataset = useRef(false)
+  useEffect(() => {
+    if (restoredDataset.current || activeDatasetId) return
+    if (datasets.length === 0) return
+    const ready = datasets.filter(d => d.status === 'ready')
+    restoredDataset.current = true
+    if (ready.length === 0) return
+    onSelectDataset(ready.find(d => d.id === savedDatasetId) ?? ready[0])
+  }, [datasets, activeDatasetId, savedDatasetId, onSelectDataset])
+
+  // Then restore its run: the saved one if it is still there and finished,
+  // otherwise the most recent completed run, otherwise leave the chart on the
+  // dataset alone. Never starts a backtest -- restoring a view must not kick
+  // off computation.
+  const restoredBacktest = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeDatasetId || activeBacktestId) return
+    if (restoredBacktest.current === activeDatasetId) return
+    if (loadedFor.current !== activeDatasetId) return
+    restoredBacktest.current = activeDatasetId
+    const done = backtests.filter(b => b.status === 'completed')
+    if (done.length === 0) return
+    const pick = done.find(b => b.id === savedBacktestId) ?? done[0]
+    onSelectBacktest(pick)
+  }, [activeDatasetId, activeBacktestId, backtests, savedBacktestId, onSelectBacktest])
 
   // Keep the SELECTED backtest in step with the polled list.
   //
@@ -230,15 +270,24 @@ export function LabTopPanel({
     try {
       const bt = await createBacktest(activeDatasetId, strategySlug)
       refreshBacktests()
-      onSelectBacktest(bt)
+      selectBacktest(bt)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start backtest')
     }
   }
 
   const selectDataset = (d: DatasetMeta) => {
-    onSelectDataset(d.id === activeDatasetId ? null : d)
+    const next = d.id === activeDatasetId ? null : d
+    setSavedDatasetId(next?.id ?? null)
+    setSavedBacktestId(null)
+    onSelectDataset(next)
     onSelectBacktest(null)
+  }
+
+  /** Select a run and remember it, so a reload returns to the same overlay. */
+  const selectBacktest = (b: BacktestMeta | null) => {
+    setSavedBacktestId(b?.id ?? null)
+    onSelectBacktest(b)
   }
 
   // ── New Dataset column ──
@@ -499,7 +548,7 @@ export function LabTopPanel({
                   <li key={b.id}>
                     <button
                       type="button"
-                      onClick={() => b.status === 'completed' && onSelectBacktest(b.id === activeBacktestId ? null : b)}
+                      onClick={() => b.status === 'completed' && selectBacktest(b.id === activeBacktestId ? null : b)}
                       disabled={b.status !== 'completed'}
                       className={`w-full flex items-center justify-between gap-1.5 text-left px-3 py-1.5 transition-colors ${
                         b.id === activeBacktestId ? 'bg-blue-600/20' : b.status === 'completed' ? 'hover:bg-gray-700' : ''

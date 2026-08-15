@@ -189,6 +189,9 @@ export function StockChart({
   // any custom window/interval override left over from a previous dataset
   // (LabPage resets its own range state the same way for the same reason).
   useEffect(() => { setCwin(null); setIntervalOverride(undefined); setScrubWindow(null) }, [dataset?.id])
+  // Trading: a new ticker loads a different series, so a window scrubbed over
+  // the old one means nothing against it.
+  useEffect(() => { setScrubWindow(null) }, [ticker])
   // Custom window's own interval choices: in dataset mode, only the dataset's
   // native interval or coarser is actually viewable (mirrors supportedIntervals).
   const customIntervalOptions: Interval[] = isDatasetMode
@@ -321,14 +324,21 @@ export function StockChart({
     [scrubWindow, datasetResampled, datasetDisplayBars],
   )
 
+  // The bars the window logic works over, in either mode. Trading gets the
+  // same treatment as Lab -- the range tab loads a series, and the window slides
+  // over it -- so both charts behave identically.
+  const windowSourceBars = useMemo(
+    () => (isDatasetMode ? datasetBars : (longPull ? job.bars : data)),
+    [isDatasetMode, datasetBars, longPull, job.bars, data],
+  )
+
   // Where the chart should place its view when the window changes.
   const viewRange = useMemo(() => {
-    if (!isDatasetMode) return null
     if (scrubWindow) return { from: scrubWindow.start, to: scrubWindow.end }
-    const w = datasetDisplayBars
+    const w = isDatasetMode ? datasetDisplayBars : windowSourceBars
     if (w.length === 0) return null
     return { from: w[0].timestamp, to: w[w.length - 1].timestamp }
-  }, [isDatasetMode, scrubWindow, datasetDisplayBars])
+  }, [isDatasetMode, scrubWindow, datasetDisplayBars, windowSourceBars])
 
   // What the chart is ACTUALLY showing after any zoom/pan, reported back by
   // LWChart as real bar timestamps. Everything downstream follows this rather
@@ -345,15 +355,16 @@ export function StockChart({
   // Fall back to the selected window until the chart has reported one (first
   // paint), so nothing downstream sees a null window mid-mount.
   const effectiveWindow = useMemo(() => {
-    if (!isDatasetMode) return null
     if (visibleWindow) return visibleWindow
     if (viewRange) return { start: viewRange.from, end: viewRange.to }
     return null
-  }, [isDatasetMode, visibleWindow, viewRange])
+  }, [visibleWindow, viewRange])
 
   const focusRawWindow = useMemo(
-    () => (effectiveWindow ? filterByDateRange(datasetBars, effectiveWindow.start, effectiveWindow.end) : datasetRawWindow),
-    [effectiveWindow, datasetBars, datasetRawWindow],
+    () => (effectiveWindow
+      ? filterByDateRange(windowSourceBars, effectiveWindow.start, effectiveWindow.end)
+      : (isDatasetMode ? datasetRawWindow : windowSourceBars)),
+    [effectiveWindow, windowSourceBars, isDatasetMode, datasetRawWindow],
   )
   useEffect(() => {
     if (!isDatasetMode) { onWindowChange?.(null, null); return }
@@ -453,9 +464,9 @@ export function StockChart({
   // you picked is the point of it.
   // Blank scroll room either side of the data, scaled to the dataset so it is
   // meaningful both zoomed in and at MAX.
-  const blankPadBars = isDatasetMode
-    ? Math.min(2000, Math.max(200, Math.round(chartData.length * 0.15)))
-    : 0
+  const blankPadBars = isLive
+    ? 0
+    : Math.min(2000, Math.max(200, Math.round(chartData.length * 0.15)))
   const replayBars = isDatasetMode ? focusWindowBars : chartData
   const fullLen = replayBars.length
 
@@ -632,7 +643,7 @@ export function StockChart({
     if (loading) return status('Loading…', 'muted', true)
     if (error) return status(error, 'error')
     if (chartData.length === 0) return status('Search for a ticker above to load data')
-    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} revealCount={revealCount} />
+    return <LWChart data={displayData} type={effectiveType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} showDayBands={showDayBands} revealCount={revealCount} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} />
   })()
 
   const toggleBtn = (active: boolean, onClick: () => void, label: string, title: string) => (
@@ -1005,12 +1016,25 @@ export function StockChart({
       {/* focusRawWindow follows the chart's visible range, so zooming or
           dragging the candles resizes and slides this handle too -- and
           dragging the handle still drives the chart, as before. */}
-      {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
+      {isDatasetMode && !noDatasetSelected && !replayOn && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}
           windowStart={focusRawWindow[0]?.timestamp ?? null}
           windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
           onChange={(s, e) => setScrubWindow({ start: s, end: e })}
+          onClear={() => setScrubWindow(null)}
+        />
+      )}
+
+      {/* Trading chart gets the same scrubber as Lab: it slides a window over
+          whatever the range tab loaded, and the chart's visible range drives it
+          back, exactly as in dataset mode. */}
+      {!isDatasetMode && !isLive && !replayOn && windowSourceBars.length > 1 && (
+        <DatasetTimeScrubber
+          bars={windowSourceBars}
+          windowStart={focusRawWindow[0]?.timestamp ?? null}
+          windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          onChange={(st, e) => setScrubWindow({ start: st, end: e })}
           onClear={() => setScrubWindow(null)}
         />
       )}
@@ -1022,6 +1046,17 @@ export function StockChart({
           this wrapper only handles the hover-to-reveal fade/scale. */}
       {replayOn && !isLive && (
         <div className="group relative flex-shrink-0 h-9 flex items-center justify-center">
+          {/* Collapsed state: a thin bar showing how far the replay has run.
+              The full transport used to be invisible until hovered, which meant
+              nothing on screen said it existed. This is the affordance. */}
+          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-6 opacity-100 group-hover:opacity-0 transition-opacity duration-150 pointer-events-none">
+            <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full bg-blue-500/70 transition-[width] duration-150"
+                style={{ width: `${fullLen > 1 ? ((revealN - 1) / (fullLen - 1)) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
           <div
             className="w-full max-w-2xl opacity-0 scale-95 pointer-events-none
                        group-hover:opacity-100 group-hover:scale-100 group-hover:pointer-events-auto

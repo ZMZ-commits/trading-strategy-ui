@@ -153,6 +153,12 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   /** Pane count the stretch factors were last applied for, so manual pane
    *  resizing survives re-renders. */
   const paneCountRef = useRef(0)
+  /** Series composition the current series objects were built for. */
+  const compositionRef = useRef('')
+  /** Primitives attached to the price series, so they can be detached before
+   *  being re-derived on a reuse pass. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const primitivesRef = useRef<any[]>([])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function emitReadout(param?: any) {
@@ -246,36 +252,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
 
     return () => {
       for (const t of retryTimers.current) window.clearTimeout(t)
-      retryTimers.current = []
-      if (rangeRaf) cancelAnimationFrame(rangeRaf)
-      c.remove(); chart.current = null
-      seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Single render pass — price + volume + overlays + oscillators built together so
-  // the time scale and panes stay consistent across range switches.
-  useEffect(() => {
-    const c = chart.current
-    if (!c) return
-    // Every series gets torn down and rebuilt on any dependency change (not
-    // just fitKey), including indicator/strategy-only updates. Lightweight
-    // Charts doesn't reliably keep the prior visible range across a full
-    // rebuild -- if a just-added series (e.g. an indicator windowed to a
-    // wider focus than the candlesticks, via the dataset time scrubber) spans
-    // more time than what was visible, the chart silently widens to show it.
-    // Capture the range now and explicitly restore it below (unless this is
-    // a real refit) so indicator/strategy-only changes never move the view.
-    for (const t of retryTimers.current) window.clearTimeout(t)
     retryTimers.current = []
     const savedRange = c.timeScale().getVisibleRange()
-    for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
-    seriesRefs.current = []
-    labeled.current = []
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const add = (def: any, opts: any, pane = 0) => { const s = c.addSeries(def, opts, pane); seriesRefs.current.push(s); return s }
 
     // Whitespace either side of the real bars, so there is somewhere to scroll
     // to. The step is the SMALLEST gap between bars -- using an average would
@@ -298,6 +276,67 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     })()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const withPad = (rows: any[]) => (pads.lead.length ? [...pads.lead, ...rows, ...pads.trail] : rows)
+
+    // ── reuse vs rebuild ────────────────────────────────────────────────
+    //
+    // Destroying and recreating every series also destroys the PANES, and new
+    // panes come back at default heights -- so a manually dragged separator
+    // sprang back on any re-render. Data changing is not a reason to rebuild.
+    //
+    // The series are recycled whenever the COMPOSITION is unchanged: same
+    // chart type, same volume setting, same indicators/oscillators/custom/
+    // strategy lines in the same panes. Only then is the sequence of add()
+    // calls identical, which is what makes positional recycling safe. A real
+    // change to the set still takes the full rebuild path.
+    const composition = JSON.stringify({
+      type,
+      showVolume,
+      padded: pads.lead.length > 0,
+      indicators: Object.entries(indicators)
+        .map(([k, v]) => `${k}:${v && v.values && v.values.length ? 1 : 0}`).sort(),
+      oscillators: [...oscillators].sort(),
+      custom: custom.map(cs => `${cs.name}:${cs.kind ?? 'overlay'}`),
+      strategy: (strategy?.lines ?? []).map(ln => `${ln.name}:${ln.kind ?? 'overlay'}`),
+    })
+    const reuse = compositionRef.current === composition && seriesRefs.current.length > 0
+    compositionRef.current = composition
+
+    if (!reuse) {
+      for (const s of seriesRefs.current) { try { c.removeSeries(s) } catch { /* noop */ } }
+      seriesRefs.current = []
+      primitivesRef.current = []
+    }
+    labeled.current = []
+
+    // Primitives are re-derived every pass (markers move with the data), so on
+    // a reuse pass the previous ones must come off the series first or they
+    // would stack up invisibly.
+    if (reuse && priceRef.current) {
+      for (const prim of primitivesRef.current) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        try { (priceRef.current as any).detachPrimitive(prim) } catch { /* noop */ }
+      }
+      primitivesRef.current = []
+    }
+
+    let reuseIdx = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const add = (def: any, opts: any, pane = 0) => {
+      if (reuse) {
+        const existing = seriesRefs.current[reuseIdx]
+        if (existing) {
+          reuseIdx++
+          try { existing.applyOptions(opts) } catch { /* noop */ }
+          return existing
+        }
+        // Signature said reuse but we ran out of series -- create rather than
+        // crash, and the next pass will rebuild cleanly.
+      }
+      const created = c.addSeries(def, opts, pane)
+      seriesRefs.current.push(created)
+      reuseIdx = seriesRefs.current.length
+      return created
+    }
     const reveal = revealCount == null ? data.length : Math.max(0, Math.min(revealCount, data.length))
 
     // Price (pane 0)
@@ -453,7 +492,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
           label: sig.type === 'buy' ? 'Buy' : 'Sell',
         }))
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(markers)) } catch { /* noop */ }
+        try {
+          const prim = new VertLinesPrimitive(markers)
+          ;(priceRef.current as any).attachPrimitive(prim)
+          primitivesRef.current.push(prim)
+        } catch { /* noop */ }
       }
     }
 
@@ -466,7 +509,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
         label: l.type === 'buy' ? '▲' : '▼',
       }))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      try { (priceRef.current as any).attachPrimitive(new VertLinesPrimitive(marks)) } catch { /* noop */ }
+      try {
+        const prim = new VertLinesPrimitive(marks)
+        ;(priceRef.current as any).attachPrimitive(prim)
+        primitivesRef.current.push(prim)
+      } catch { /* noop */ }
     }
 
     // Alternating session shading. Attached before the marker primitives so it
@@ -476,7 +523,11 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       const bands = buildDayBands(data, toTime)
       if (bands.length) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        try { (priceRef.current as any).attachPrimitive(new DayBandsPrimitive(bands)) } catch { /* noop */ }
+        try {
+          const prim = new DayBandsPrimitive(bands)
+          ;(priceRef.current as any).attachPrimitive(prim)
+          primitivesRef.current.push(prim)
+        } catch { /* noop */ }
       }
     }
 

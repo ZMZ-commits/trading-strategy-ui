@@ -155,8 +155,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   const paneCountRef = useRef(0)
   /** Series composition the current series objects were built for. */
   const compositionRef = useRef('')
-  /** Primitives attached to the price series, so they can be detached before
-   *  being re-derived on a reuse pass. */
+  /** Primitives attached to the price series, detached before being
+   *  re-derived on a reuse pass. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const primitivesRef = useRef<any[]>([])
 
@@ -252,6 +252,29 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
 
     return () => {
       for (const t of retryTimers.current) window.clearTimeout(t)
+      retryTimers.current = []
+      if (rangeRaf) cancelAnimationFrame(rangeRaf)
+      c.remove(); chart.current = null
+      seriesRefs.current = []; priceRef.current = null; labeled.current = []; dataSig.current = ''
+      compositionRef.current = ''; primitivesRef.current = []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Single render pass — price + volume + overlays + oscillators built together so
+  // the time scale and panes stay consistent across range switches.
+  useEffect(() => {
+    const c = chart.current
+    if (!c) return
+    // Every series gets torn down and rebuilt on any dependency change (not
+    // just fitKey), including indicator/strategy-only updates. Lightweight
+    // Charts doesn't reliably keep the prior visible range across a full
+    // rebuild -- if a just-added series (e.g. an indicator windowed to a
+    // wider focus than the candlesticks, via the dataset time scrubber) spans
+    // more time than what was visible, the chart silently widens to show it.
+    // Capture the range now and explicitly restore it below (unless this is
+    // a real refit) so indicator/strategy-only changes never move the view.
+    for (const t of retryTimers.current) window.clearTimeout(t)
     retryTimers.current = []
     const savedRange = c.timeScale().getVisibleRange()
 
@@ -277,26 +300,27 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const withPad = (rows: any[]) => (pads.lead.length ? [...pads.lead, ...rows, ...pads.trail] : rows)
 
-    // ── reuse vs rebuild ────────────────────────────────────────────────
+    // ── recycle, don't rebuild ──────────────────────────────────────────
     //
-    // Destroying and recreating every series also destroys the PANES, and new
-    // panes come back at default heights -- so a manually dragged separator
-    // sprang back on any re-render. Data changing is not a reason to rebuild.
+    // Destroying every series also destroys the PANES, and new panes come back
+    // at default heights -- which is why a manually dragged price/oscillator
+    // separator sprang back on any re-render. Data changing is not a reason to
+    // rebuild anything.
     //
-    // The series are recycled whenever the COMPOSITION is unchanged: same
-    // chart type, same volume setting, same indicators/oscillators/custom/
-    // strategy lines in the same panes. Only then is the sequence of add()
-    // calls identical, which is what makes positional recycling safe. A real
-    // change to the set still takes the full rebuild path.
+    // Series are recycled whenever the COMPOSITION is unchanged: same chart
+    // type, same volume setting, same indicators, oscillators, custom and
+    // strategy lines. Only then is the sequence of add() calls identical,
+    // which is what makes positional recycling safe. Changing the actual set
+    // still takes the full rebuild path.
     const composition = JSON.stringify({
       type,
       showVolume,
       padded: pads.lead.length > 0,
       indicators: Object.entries(indicators)
-        .map(([k, v]) => `${k}:${v && v.values && v.values.length ? 1 : 0}`).sort(),
+        .map(([k, v]) => k + ':' + (v && v.values && v.values.length ? 1 : 0)).sort(),
       oscillators: [...oscillators].sort(),
-      custom: custom.map(cs => `${cs.name}:${cs.kind ?? 'overlay'}`),
-      strategy: (strategy?.lines ?? []).map(ln => `${ln.name}:${ln.kind ?? 'overlay'}`),
+      custom: custom.map(cs => cs.name + ':' + (cs.kind ?? 'overlay')),
+      strategy: (strategy?.lines ?? []).map(ln => ln.name + ':' + (ln.kind ?? 'overlay')),
     })
     const reuse = compositionRef.current === composition && seriesRefs.current.length > 0
     compositionRef.current = composition
@@ -309,8 +333,7 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
     labeled.current = []
 
     // Primitives are re-derived every pass (markers move with the data), so on
-    // a reuse pass the previous ones must come off the series first or they
-    // would stack up invisibly.
+    // a reuse pass the old ones must come off first or they stack up unseen.
     if (reuse && priceRef.current) {
       for (const prim of primitivesRef.current) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -329,8 +352,8 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
           try { existing.applyOptions(opts) } catch { /* noop */ }
           return existing
         }
-        // Signature said reuse but we ran out of series -- create rather than
-        // crash, and the next pass will rebuild cleanly.
+        // Signature claimed reuse but we ran out -- create rather than crash;
+        // the next pass rebuilds cleanly.
       }
       const created = c.addSeries(def, opts, pane)
       seriesRefs.current.push(created)

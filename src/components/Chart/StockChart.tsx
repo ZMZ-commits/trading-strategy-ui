@@ -389,9 +389,18 @@ export function StockChart({
   // overlay instead comes from the selected backtest run (converted below).
   const strategySlug = selectedStrategy?.source === 'workspace' ? selectedStrategy.slug : null
   const liveStrategyData = useStrategyChart(liveTicker, range, strategySlug, dataInterval, winStart, winEnd)
-  const strategyData = isDatasetMode
-    ? (datasetBacktest ? backtestToChartData(datasetBacktest) : EMPTY_STRATEGY_DATA)
-    : liveStrategyData
+  // Memoised on the run itself. Converting on every render returned a NEW
+  // object each time, which changed LWChart's `strategy` prop identity and so
+  // tore down and rebuilt every series on every render. Rebuilding recreates
+  // the panes, and new panes come back at default heights -- which is why
+  // dragging the price/oscillator separator sprang back only when a completed
+  // backtest was selected. With no run, EMPTY_STRATEGY_DATA is a module
+  // constant, nothing rebuilt, and the separator behaved perfectly normally.
+  const datasetStrategyData = useMemo(
+    () => (datasetBacktest ? backtestToChartData(datasetBacktest) : EMPTY_STRATEGY_DATA),
+    [datasetBacktest],
+  )
+  const strategyData = isDatasetMode ? datasetStrategyData : liveStrategyData
 
   // A strategy's own ctx.plot() lines (e.g. an ATR reference a strategy
   // computes for itself) are listed in the Indicators picker's "Strategy"

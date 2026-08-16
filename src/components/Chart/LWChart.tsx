@@ -150,6 +150,9 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
   /** Pending view-position retries, cleared whenever the effect re-runs so a
    *  stale retry can never fight a newer window. */
   const retryTimers = useRef<number[]>([])
+  /** Pane count the stretch factors were last applied for, so manual pane
+   *  resizing survives re-renders. */
+  const paneCountRef = useRef(0)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function emitReadout(param?: any) {
@@ -477,12 +480,20 @@ export function LWChart({ data, type, showVolume, indicators, oscillators, custo
       }
     }
 
-    // Pane sizing via stretch factors — price always dominant, oscillators compact.
+    // Pane sizing via stretch factors — price dominant, oscillators compact.
+    //
+    // Applied ONLY when the pane layout changes, never on every render. Doing
+    // it every time meant that dragging the separator between the price pane
+    // and an oscillator was undone by the next render: the panes snapped back
+    // to these ratios, which reads as the drag moving the opposite way.
     try {
       const panes = c.panes()
-      if (panes.length > 1) {
+      if (panes.length > 1 && paneCountRef.current !== panes.length) {
+        paneCountRef.current = panes.length
         panes[0].setStretchFactor((panes.length - 1) + 2)
         for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(1)
+      } else if (panes.length <= 1) {
+        paneCountRef.current = panes.length
       }
     } catch { /* noop */ }
 

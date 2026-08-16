@@ -618,7 +618,29 @@ export function StockChart({
   const body = (() => {
     if (noDatasetSelected) return status('Select a dataset above to view its chart')
     if (isDatasetMode) {
-      if (datasetLoading) return status('Loading dataset…', 'muted', true)
+      // A dataset still being built reports real chunk counts, so it gets the
+      // same determinate ring the long-pull fetches use rather than a spinner
+      // that says "busy" without saying how busy.
+      if (dataset && (dataset.status === 'running' || dataset.status === 'pending')) {
+        const done = dataset.progress?.done ?? 0
+        const total = dataset.progress?.total ?? 0
+        return (
+          <ChunkProgress
+            progress={total > 0 ? done / total : 0}
+            done={done}
+            total={total}
+            label={`Building ${dataset.ticker} ${dataset.interval} dataset…`}
+          />
+        )
+      }
+      if (datasetLoading) {
+        return (
+          <ChunkProgress
+            progress={0} done={0} total={0}
+            label={`Loading ${dataset?.ticker ?? ''} bars…`}
+          />
+        )
+      }
       if (datasetError) return status(datasetError, 'error')
       if (chartData.length === 0) return status('Dataset has no bars')
       return <LWChart data={displayData} type={chartType} showVolume={showVolume} indicators={displayIndicators} oscillators={oscillators} custom={displayCustom} strategy={displayStrategy} fitKey={fitKey} onReadout={setValues} labels={labelMarks} onBarClick={handleBarClick} onApiReady={setChartApi} viewRange={viewRange} onVisibleRangeChange={handleVisibleRange} padBars={blankPadBars} showDayBands={showDayBands} revealCount={revealCount} />

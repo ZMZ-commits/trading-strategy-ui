@@ -13,6 +13,11 @@ interface Props {
   onChange: (start: string, end: string) => void
   /** Fired on double-click to reset to the full dataset range. */
   onClear: () => void
+  /** Bar-replay playhead. The TRACK still spans the whole dataset -- so index
+   *  mapping and dragging are unaffected -- but the sparkline stops here, so
+   *  the strip shows data accumulating as the replay runs instead of showing
+   *  a series that has not been revealed yet. */
+  dataUpTo?: string | null
 }
 
 type DragMode = 'move' | 'resize-left' | 'resize-right' | 'create'
@@ -30,23 +35,28 @@ const fmt = (ts: string) => {
  *  either edge), or draw fresh (click+drag empty track). Selecting always
  *  snaps to real bar timestamps -- index-based, not calendar-proportional --
  *  so a drag never lands between bars or inside a weekend/overnight gap. */
-export function DatasetTimeScrubber({ bars, windowStart, windowEnd, onChange, onClear }: Props) {
+export function DatasetTimeScrubber({ bars, windowStart, windowEnd, onChange, onClear, dataUpTo }: Props) {
   const trackRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const n = bars.length
 
   const sparkline = useMemo(() => {
     if (n < 2) return ''
+    // Scale over the WHOLE dataset even when the line is cut short, so the
+    // sparkline does not rescale vertically on every replay tick.
     const closes = bars.map(b => b.close)
     const lo = Math.min(...closes), hi = Math.max(...closes)
     const span = hi - lo || 1
-    const pts = closes.map((c, i) => {
+    const cut = dataUpTo ? new Date(dataUpTo).getTime() : Infinity
+    const pts: string[] = []
+    for (let i = 0; i < n; i++) {
+      if (new Date(bars[i].timestamp).getTime() > cut) break
       const x = (i / (n - 1)) * 100
-      const y = 32 - ((c - lo) / span) * 28 - 2
-      return `${x.toFixed(2)},${y.toFixed(2)}`
-    })
+      const y = 32 - ((closes[i] - lo) / span) * 28 - 2
+      pts.push(`${x.toFixed(2)},${y.toFixed(2)}`)
+    }
     return pts.join(' ')
-  }, [bars, n])
+  }, [bars, n, dataUpTo])
 
   const idxForTs = useCallback((ts: string | null, fallback: number) => {
     if (!ts || n === 0) return fallback

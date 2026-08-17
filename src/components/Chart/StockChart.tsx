@@ -548,6 +548,42 @@ export function StockChart({
   const replayCutoffTs = replaySlicing && replayBars[revealN - 1] ? replayBars[revealN - 1].timestamp : null
   useEffect(() => { onReplayCutoff?.(replayCutoffTs) }, [replayCutoffTs, onReplayCutoff])
 
+  // While replaying, the bottom window follows the playhead rather than the
+  // chart's view -- the chart deliberately stays on the window you selected.
+  //
+  // It holds still for as long as everything replayed so far still FITS inside
+  // that window; there is nothing to track while the bars are landing inside
+  // it. Once the replay runs past the window's length it slides forward at the
+  // same size, keeping the playhead at its right edge for the rest of the run.
+  const replayScrubWindow = useMemo(() => {
+    if (!replaySlicing || !effectiveWindow || windowSourceBars.length === 0) return null
+    const head = replayCutoffTs ? new Date(replayCutoffTs).getTime() : 0
+    if (!head) return null
+    const anchor = new Date(windowSourceBars[0].timestamp).getTime()
+    const span = new Date(effectiveWindow.end).getTime() - new Date(effectiveWindow.start).getTime()
+    if (span <= 0) return null
+    const iso = (ms: number) => new Date(ms).toISOString()
+    return head - anchor <= span
+      ? { start: iso(anchor), end: iso(anchor + span) }
+      : { start: iso(head - span), end: iso(head) }
+  }, [replaySlicing, replayCutoffTs, effectiveWindow, windowSourceBars])
+
+  const scrubBounds = useMemo(() => {
+    const w = replayScrubWindow
+    if (w) {
+      const inside = filterByDateRange(windowSourceBars, w.start, w.end)
+      return {
+        start: inside[0]?.timestamp ?? w.start,
+        end: inside[inside.length - 1]?.timestamp ?? w.end,
+      }
+    }
+    return {
+      start: focusRawWindow[0]?.timestamp ?? null,
+      end: focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null,
+    }
+  }, [replayScrubWindow, windowSourceBars, focusRawWindow])
+
+
   // Publish chart identity for the readout consumers (Market Insight panel and
   // the floating legend). Values come separately from LWChart's crosshair.
   const readoutTicker = isDatasetMode ? dataset!.ticker : noDatasetSelected ? '' : ticker
@@ -1047,11 +1083,11 @@ export function StockChart({
       {/* focusRawWindow follows the chart's visible range, so zooming or
           dragging the candles resizes and slides this handle too -- and
           dragging the handle still drives the chart, as before. */}
-      {isDatasetMode && !noDatasetSelected && !replayOn && datasetBars.length > 1 && (
+      {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}
-          windowStart={focusRawWindow[0]?.timestamp ?? null}
-          windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          windowStart={scrubBounds.start}
+          windowEnd={scrubBounds.end}
           onChange={(s, e) => setScrubWindow({ start: s, end: e })}
           onClear={() => setScrubWindow(null)}
         />
@@ -1060,11 +1096,11 @@ export function StockChart({
       {/* Trading chart gets the same scrubber as Lab: it slides a window over
           whatever the range tab loaded, and the chart's visible range drives it
           back, exactly as in dataset mode. */}
-      {!isDatasetMode && !isLive && !replayOn && windowSourceBars.length > 1 && (
+      {!isDatasetMode && !isLive && windowSourceBars.length > 1 && (
         <DatasetTimeScrubber
           bars={windowSourceBars}
-          windowStart={focusRawWindow[0]?.timestamp ?? null}
-          windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          windowStart={scrubBounds.start}
+          windowEnd={scrubBounds.end}
           onChange={(st, e) => setScrubWindow({ start: st, end: e })}
           onClear={() => setScrubWindow(null)}
         />

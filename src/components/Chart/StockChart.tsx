@@ -1047,11 +1047,12 @@ export function StockChart({
       {/* focusRawWindow follows the chart's visible range, so zooming or
           dragging the candles resizes and slides this handle too -- and
           dragging the handle still drives the chart, as before. */}
-      {isDatasetMode && !noDatasetSelected && !replayOn && datasetBars.length > 1 && (
+      {isDatasetMode && !noDatasetSelected && datasetBars.length > 1 && (
         <DatasetTimeScrubber
           bars={datasetBars}
           windowStart={focusRawWindow[0]?.timestamp ?? null}
           windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          dataUpTo={replayCutoffTs}
           onChange={(s, e) => setScrubWindow({ start: s, end: e })}
           onClear={() => setScrubWindow(null)}
         />
@@ -1060,11 +1061,12 @@ export function StockChart({
       {/* Trading chart gets the same scrubber as Lab: it slides a window over
           whatever the range tab loaded, and the chart's visible range drives it
           back, exactly as in dataset mode. */}
-      {!isDatasetMode && !isLive && !replayOn && windowSourceBars.length > 1 && (
+      {!isDatasetMode && !isLive && windowSourceBars.length > 1 && (
         <DatasetTimeScrubber
           bars={windowSourceBars}
           windowStart={focusRawWindow[0]?.timestamp ?? null}
           windowEnd={focusRawWindow[focusRawWindow.length - 1]?.timestamp ?? null}
+          dataUpTo={replayCutoffTs}
           onChange={(st, e) => setScrubWindow({ start: st, end: e })}
           onClear={() => setScrubWindow(null)}
         />

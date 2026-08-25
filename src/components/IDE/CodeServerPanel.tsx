@@ -1,4 +1,7 @@
+import { useState } from 'react'
+
 import { useHResizable } from '../../hooks/useHResizable'
+import { DocViewerModal } from './DocViewerModal'
 
 // Where code-server (VS Code in the browser) is reachable FROM THE BROWSER.
 // Default is the public HTTPS endpoint (Caddy). For local-only access via SSH
@@ -10,6 +13,8 @@ const CODE_SERVER_BASE =
 // dotfiles (~/.cache, ~/.config, ~/.local). The folder holds strategies/ and
 // indicators/.
 const CODE_SERVER_URL = `${CODE_SERVER_BASE}/?folder=/home/coder/project`
+
+const GITHUB_URL = 'https://github.com/zmz-commits/trading-strategy-platform'
 
 interface Props {
   open: boolean
@@ -24,6 +29,7 @@ interface Props {
  *  edge is a drag-to-resize divider with a hover tab to collapse. No top chrome. */
 export function CodeServerPanel({ open, onToggle }: Props) {
   const { width, dragging, onDragHandleMouseDown } = useHResizable(560, 320)
+  const [docOpen, setDocOpen] = useState(false)
 
   return (
     <>
@@ -42,6 +48,37 @@ export function CodeServerPanel({ open, onToggle }: Props) {
           </button>
           <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-gray-500 [writing-mode:vertical-rl] rotate-180">
             VS Code
+          </span>
+
+          {/* Everything below the divider leaves the app rather than changing
+              it: one link out to the source, one window onto the design doc. */}
+          <span className="my-2 h-px w-5 flex-shrink-0 bg-border" />
+
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open the repository on GitHub"
+            aria-label="Open the repository on GitHub"
+            className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.34-5.47-5.96 0-1.32.47-2.39 1.24-3.23-.13-.3-.54-1.53.11-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.65 1.65.24 2.88.12 3.18.77.84 1.23 1.91 1.23 3.23 0 4.63-2.81 5.65-5.49 5.95.43.37.82 1.1.82 2.22v3.29c0 .32.21.7.83.58A12.01 12.01 0 0 0 24 12.5C24 5.87 18.63.5 12 .5z" />
+            </svg>
+          </a>
+
+          <button
+            onClick={() => setDocOpen(true)}
+            title="Open the design doc"
+            aria-label="Open the design doc"
+            className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </button>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 [writing-mode:vertical-rl] rotate-180">
+            Docs
           </span>
         </div>
       )}
@@ -94,6 +131,10 @@ export function CodeServerPanel({ open, onToggle }: Props) {
           </div>
         )}
       </div>
+
+      {/* Outside the collapsed-rail block on purpose, so the doc stays
+          open while the IDE is expanded. */}
+      <DocViewerModal open={docOpen} onClose={() => setDocOpen(false)} />
     </>
   )
 }

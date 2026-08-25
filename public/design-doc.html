@@ -164,16 +164,6 @@
           background: var(--raised); color: var(--ink-soft);
           padding: .1rem .35rem; border-radius: 3px; }
 
-  .cy-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-            margin: 1rem 0 .6rem; }
-  .cy-bar button { font-family: Archivo, sans-serif; font-size: .78rem; padding: .3rem .7rem;
-                   border: 1px solid var(--rule); border-radius: var(--radius, 6px);
-                   background: var(--surface); color: var(--ink); cursor: pointer; }
-  .cy-bar button:hover { border-color: var(--accent); color: var(--accent); }
-  .cy-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .cy-hint { font-family: "IBM Plex Mono", monospace; font-size: .72rem; color: var(--ink-faint); }
-  #cy { display: none; width: 100%; height: 780px; border: 1px solid var(--rule);
-        border-radius: 8px; background: var(--surface); }
 
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
            gap: 12px; margin-top: 1.6rem; }
@@ -202,6 +192,20 @@
   .ring.ok { border-color: var(--held); }
   .ring.no { border-color: var(--gap); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+  /* Scrollbars. A default light scrollbar reads as a bright seam against
+     #1e1e1e, especially inside the viewer where it sits next to the panel
+     chrome. These borrow VS Code's own slider colours. color-scheme also
+     darkens the ones we cannot style directly. */
+  html { color-scheme: dark; }
+  * { scrollbar-width: thin; scrollbar-color: rgba(121,121,121,.4) transparent; }
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(121,121,121,.4); border-radius: 6px;
+    border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(100,100,100,.7); background-clip: content-box; }
+  ::-webkit-scrollbar-corner { background: transparent; }
 </style>
 <style>
   /* The artifact host supplies a reset; standalone we bring our own. */
@@ -480,11 +484,8 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
   </div>
 
   <figure>
-    <div class="cy-bar">
-      <span class="cy-hint">drag any box &middot; scroll to zoom &middot; arrows point from caller to callee &middot; faint dashed lines are metric scrapes</span>
-    </div>
-    <div id="cy"></div>
-    <div class="scroll" id="sys-fallback">
+    
+        <div class="scroll">
       <svg class="d sys" viewBox="0 0 1420 1290" role="img" aria-labelledby="syst sysd">
         <title id="syst">Platform architecture as a cascade, one box per machine</title>
         <desc id="sysd">Read the diagram as a staircase: each machine sits below and to the right of the one it depends on. Cloudflare Pages serves the three browser views and hands every request down to node-1, which holds authorization, the application services, the sandbox worker and observability. node-1 tells node-3 which symbols to watch. Inside node-3 the pipeline reads left to right: the scraper and the reconciler ingest on the left and publish into Kafka in the middle, and the consumers hang off the bus on the right, where the aggregator seals each minute and publishes a closed bar back onto the bus for analytics and the bot host to pick up. Alpaca sits to the right as the one box we do not own. Both compute nodes read and write node-2 at the foot of the staircase.</desc>
@@ -2425,161 +2426,7 @@ bar_gaps(symbol, gap_start, gap_end)                -- usually empty</pre>
 })();
 </script>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
-<script>
-(function () {
-  if (typeof cytoscape !== 'function') {
-    // The library comes from a CDN, which the artifact sandbox blocks. When that
-    // happens the static SVG below is the whole diagram, so drop the bar that invites
-    // dragging and zooming rather than leave controls for a graph that is not there.
-    var bar = document.querySelector('.cy-bar');
-    if (bar) bar.style.display = 'none';
-    return;
-  }
-  var el = document.getElementById('cy');
-  var fb = document.getElementById('sys-fallback');
-  if (!el) return;
 
-  var cs = getComputedStyle(document.documentElement);
-  var V = function (n) { return cs.getPropertyValue(n).trim(); };
-  var C = {
-    ink: V('--ink'), faint: V('--ink-faint'), rule: V('--rule'), accent: V('--accent'),
-    ground: V('--ground'), surface: V('--surface'),
-    held: V('--held'), gap: V('--gap')
-  };
-
-  // status: have | change | new
-  // layers run top to bottom, outermost first; each layer reads left to right
-  // in call order, so the pipeline is a line rather than a pile
-  var N = [
-    ['cf', null, 'Cloudflare Pages', '', '', 0, 0],
-    ['n1', null, 'node-1 \u00b7 edge', '', '', 0, 0],
-    ['n3', null, 'node-3 \u00b7 stream \u00b7 the pipeline', '', '', 0, 0],
-    ['n2', null, 'node-2 \u00b7 data', '', '', 0, 0],
-    ['ext', null, 'Outside \u00b7 not ours', '', '', 0, 0],
-
-    ['trading', 'cf', 'Trading', 'change', 'TypeScript', 260, 60],
-    ['lab', 'cf', 'Lab', 'change', 'TypeScript', 700, 60],
-    ['tpiam', 'cf', 'TPIAM', 'new', 'TypeScript', 1140, 60],
-
-    ['auth', 'n1', 'Auth \u0026 session', 'new', 'Python', 660, 300],
-    ['registry', 'n1', 'Symbol registry', 'new', 'Python', 1100, 300],
-    ['history', 'n1', 'History service', 'change', 'Python', 1540, 300],
-    ['runs', 'n1', 'Strategy runs', 'have', 'Python', 1980, 300],
-    ['orgs', 'n1', 'Org \u0026 project mgr', 'new', 'Python', 1100, 430],
-    ['sandbox', 'n1', 'Sandbox worker', 'change', 'Python + Rust', 1980, 430],
-    ['prom', 'n2', 'Prometheus', 'new', 'scrapes everything', 1460, 1320],
-    ['alertmgr', 'n2', 'Alertmanager', 'new', 'routes alerts', 1900, 1320],
-    ['loki', 'n2', 'Loki', 'new', 'logs', 2340, 1320],
-    ['grafana', 'n1', 'Grafana', 'new', 'dashboards', 1980, 560],
-
-    ['scraper', 'n3', 'Scraper', 'change', 'Go \u00b7 convert', 1060, 820],
-    ['kafka', 'n3', 'Kafka', 'new', 'the bus', 1500, 885],
-    ['agg', 'n3', 'Aggregator', 'new', 'Go', 1940, 760],
-    ['bot', 'n3', 'Bot host', 'new', 'Python + Rust', 1940, 1020],
-    ['recon', 'n3', 'Reconciler', 'new', 'Python', 1060, 950],
-    ['analytics', 'n3', 'Analytics', 'change', 'Python', 1940, 890],
-
-    ['redis', 'n2', 'Redis', 'have', 'off-the-shelf', 1540, 1320],
-    ['timescale', 'n2', 'TimescaleDB', 'new', 'the store', 2100, 1320],
-    ['dbt', 'n2', 'dbt', 'new', 'SQL', 2660, 1320],
-
-    ['feed', 'ext', 'Alpaca market feed', 'have', 'IEX free tier', 2500, 885]
-  ];
-
-  // arrows point AWAY from whoever opens the connection, so the picture doubles
-  // as a dependency map: an arrow means "this cannot work without that".
-  var E = [
-    ['trading', 'auth', ':443', ''], ['lab', 'auth', ':443', ''], ['tpiam', 'auth', ':443', ''],
-    ['auth', 'registry', 'authorises', ''], ['auth', 'history', 'authorises', ''],
-    ['auth', 'runs', 'authorises', ''], ['auth', 'orgs', 'authorises', ''],
-    ['auth', 'redis', 'sessions', ''],
-    ['orgs', 'timescale', 'users \u00b7 grants', ''],
-    ['runs', 'sandbox', 'run backtest', ''],
-    ['sandbox', 'timescale', 'read bars', ''],
-    ['history', 'timescale', 'read bars', ''],
-    ['registry', 'scraper', 'which symbols to watch', ''],
-    ['scraper', 'feed', 'subscribe', ''], ['recon', 'feed', 'refetch gaps', ''],
-    ['scraper', 'kafka', 'publish ticks', ''],
-    ['agg', 'kafka', 'consume \u00b7 publish bar.closed', ''],
-    ['analytics', 'kafka', 'consume', ''], ['bot', 'kafka', 'consume bar.closed', ''],
-    ['agg', 'timescale', 'write bars', ''], ['analytics', 'timescale', 'write', ''],
-    ['bot', 'timescale', 'read lookback', ''],
-    ['recon', 'timescale', 'read gaps \u00b7 write repairs', ''],
-    ['dbt', 'timescale', 'tests \u00b7 marts', ''],
-    ['grafana', 'prom', 'query', ''], ['grafana', 'loki', 'query', ''],
-    ['prom', 'alertmgr', 'fires alerts', ''],
-    ['prom', 'auth', '', 'scrape'], ['prom', 'sandbox', '', 'scrape'],
-    ['prom', 'scraper', '', 'scrape'], ['prom', 'kafka', '', 'scrape'],
-    ['prom', 'agg', '', 'scrape'], ['prom', 'bot', '', 'scrape'],
-    ['prom', 'timescale', '', 'scrape'], ['prom', 'redis', '', 'scrape']
-  ];
-
-  var border = { have: C.held, change: C.gap, 'new': C.faint };
-
-  // Compound parents must be pushed before any child names them, which is why
-  // the machines lead N. Machines carry no position: the preset layout sizes
-  // each one from the parts it contains.
-  var els = [];
-  N.forEach(function (n) {
-    var id = n[0], parent = n[1], label = n[2], status = n[3], lang = n[4];
-    if (parent === null) {
-      els.push({ data: { id: id, kind: 'machine', label: label } });
-    } else {
-      els.push({
-        data: { id: id, parent: parent, kind: 'part',
-                label: label, status: status, lang: lang },
-        position: { x: n[5], y: n[6] }
-      });
-    }
-  });
-  E.forEach(function (e, i) {
-    els.push({ data: { id: 'e' + i, source: e[0], target: e[1],
-                       label: e[2], cls: e[3] } });
-  });
-
-  var cy = cytoscape({
-    container: el,
-    elements: els,
-    wheelSensitivity: 0.2,
-    style: [
-      { selector: 'node[kind="machine"]', style: {
-          'background-color': C.ground, 'background-opacity': 0.55,
-          'border-color': C.accent, 'border-width': 1.5, 'border-opacity': 0.5,
-          shape: 'round-rectangle', padding: 40,
-          label: 'data(label)', 'text-valign': 'top', 'text-halign': 'center',
-          'font-family': 'Archivo, sans-serif', 'font-size': 13, 'font-weight': 600,
-          color: C.accent, 'text-margin-y': -6 } },
-      { selector: 'node[kind="part"]', style: {
-          'background-color': C.surface, shape: 'round-rectangle',
-          width: 190, height: 62, 'border-width': 2,
-          'border-color': function (n) { return border[n.data('status')] || C.rule; },
-          'border-style': function (n) { return n.data('status') === 'new' ? 'dashed' : 'solid'; },
-          label: function (n) { return n.data('label') + '\n' + n.data('lang'); },
-          'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center',
-          'font-family': 'Archivo, sans-serif', 'font-size': 11, 'line-height': 1.5,
-          color: C.ink } },
-      { selector: 'edge', style: {
-          width: 1.4, 'line-color': C.faint, 'line-opacity': 0.55,
-          'target-arrow-color': C.faint, 'target-arrow-shape': 'triangle',
-          'arrow-scale': 0.8, 'curve-style': 'bezier',
-          label: 'data(label)', 'font-family': 'IBM Plex Mono, monospace', 'font-size': 8.5,
-          color: C.faint, 'text-background-color': C.surface,
-          'text-background-opacity': 0.9, 'text-background-padding': 2 } },
-      { selector: 'edge[cls="scrape"]', style: {
-          'line-style': 'dashed', 'line-opacity': 0.28, width: 1,
-          'target-arrow-shape': 'none' } },
-      { selector: 'node:selected', style: { 'border-color': C.accent, 'border-width': 3 } }
-    ],
-    layout: { name: 'preset', fit: true, padding: 30 }
-  });
-
-  fb.style.display = 'none';
-  el.style.display = 'block';
-  cy.resize(); cy.fit(undefined, 30);
-
-})();
-</script>
 
 </body>
 </html>

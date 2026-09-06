@@ -1064,8 +1064,8 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
         <rect x="10" y="602" width="1050" height="170" rx="9" fill="none" stroke="var(--rule)" stroke-opacity=".35" stroke-dasharray="5 4"/>
         <text x="24" y="620" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="var(--accent)" letter-spacing=".08em">HOW DBT FITS</text>
         <rect x="40" y="638" width="250" height="42" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
-        <text x="51" y="657.0" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="currentColor">Scheduler &#183; cron or CI</text>
-        <text x="51" y="670.0" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">nightly, after the close</text>
+        <text x="51" y="657.0" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="currentColor">Airflow</text>
+        <text x="51" y="670.0" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">triggers the nightly DAG</text>
         <circle cx="275" cy="653" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="275" y="656.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
         <rect x="470" y="638" width="330" height="60" rx="6" fill="var(--gap-soft)" stroke="var(--gap)" stroke-width="1.5"/>
         <text x="484" y="662" font-family="Archivo, sans-serif" font-size="13" font-weight="600" fill="currentColor">dbt</text>
@@ -1767,6 +1767,50 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
     specific query justified it rather than that you wanted Spark on a CV.</p>
   </div>
 
+
+  <h3 id="orchestration">Orchestration: Airflow</h3>
+  <p>Something has to decide that silver runs after bronze, that gold runs after silver, and that
+  none of it runs if the market was closed. Cron cannot express any of that &mdash; it can only
+  say &ldquo;start this at 2am and hope&rdquo;.</p>
+  <div class="callout good">
+    <h3>The one-sentence reason, which is not the r&eacute;sum&eacute; one</h3>
+    <p><strong>Reprocessing history is guaranteed to happen repeatedly, and Airflow makes it one
+    command.</strong></p>
+    <p>This document already names three reasons the archive will need rebuilding: the
+    point-in-time universe, split and dividend adjustment, and the IEX-versus-SIP decision. Each
+    of those, when fixed, invalidates every silver and gold table derived from the affected
+    dates. With cron you write a bespoke re-run script and hope you got the ordering right. With
+    Airflow the run date is a first-class parameter and re-running a range is
+    <code>airflow dags backfill</code>.</p>
+    <p>The rest follows from the same shape: per-task retries with backoff, a dependency graph
+    that will not start gold on a day silver failed, and one place to look when something did not
+    run.</p>
+  </div>
+  <h3>What it costs, honestly</h3>
+  <ul>
+    <li><strong>Roughly 2 GB of RAM</strong> for scheduler, webserver and one worker. That is real
+    on a 64 GB box and would not be on a small one.</li>
+    <li><strong>It needs a metadata database</strong> &mdash; which you already have. Airflow gets
+    its own database on the same Postgres instance as everything else, not a new server. Keep it
+    in its own database rather than a schema: it churns constantly and you do not want its write
+    volume tangled with backups of the orders table.</li>
+    <li><strong>One more thing that can be down.</strong> Airflow failing silently is the classic
+    failure &mdash; nothing errors, jobs simply never run. The alert is not &ldquo;a task
+    failed&rdquo;, it is <strong>&ldquo;the nightly DAG has not succeeded by 06:00&rdquo;</strong>,
+    which catches the scheduler being dead as well as the job being broken.</li>
+  </ul>
+  <h3>Where it lives, and when to add it</h3>
+  <p>It runs on the big box beside Spark, never on the machine holding the live loop &mdash; an
+  orchestrator scheduling a heavy job must not be able to compete with a trade for CPU.</p>
+  <p><strong>Do not install it at step one.</strong> Airflow orchestrating a single job is pure
+  overhead, and cron is the honest answer until there are at least two jobs with an ordering
+  between them. That is step 6, when bronze, silver and gold all exist. Before then the DAG would
+  have one node in it.</p>
+  <p>The split follows the same rule as everything else: <strong>the Helm chart and its values are
+  infrastructure and belong in <code>platform</code>; the DAGs belong in
+  <code>lakehouse</code></strong>, beside the jobs they run, because a DAG changes whenever the
+  job it calls changes and the two should version together.</p>
+
   <h3 id="repo-ownership">What goes in which repository</h3>
   <p>Two rules decide every case, and both are checkable rather than a matter of taste:</p>
   <div class="callout good">
@@ -1779,8 +1823,8 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
     <thead><tr><th>Repository</th><th>Owns</th><th>Work needed</th></tr></thead>
     <tbody>
       <tr><td><code>trading-strategy-platform</code><br><em>the meta repo</em></td>
-        <td>Terraform, Kubernetes manifests, Helm/ArgoCD, compose files, cross-repo docs, the
-        submodules</td>
+        <td>Terraform, Kubernetes manifests, Helm/ArgoCD, <strong>the Airflow chart and its
+        values</strong>, compose files, cross-repo docs, the submodules</td>
         <td>Rewrite the existing Terraform from AWS to the <code>hcloud</code> provider; add
         <code>infrastructure/k8s/</code></td></tr>
       <tr><td><code>trading-strategy-data-pipeline</code></td>
@@ -1790,7 +1834,7 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
         <td>Publish to Kafka alongside the existing Redis fan-out; add the backfill</td></tr>
       <tr><td><strong><code>trading-strategy-lakehouse</code></strong><br><em>new</em></td>
         <td><strong>Everything Spark or Delta.</strong> The exactly-once Kafka&rarr;bronze writer,
-        landing&rarr;bronze, bronze&rarr;silver&rarr;gold, dbt tests, the trade-to-quote join.
+        landing&rarr;bronze, bronze&rarr;silver&rarr;gold, dbt tests, the trade-to-quote join, <strong>and the Airflow DAGs that sequence them</strong>.
         Reads tables and files; never calls a provider.</td>
         <td>Create it</td></tr>
       <tr><td><code>trading-strategy-backend</code></td>
@@ -1845,8 +1889,9 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
         MinIO</td><td>lakehouse</td>
         <td>You kill it mid-write and find neither a duplicate nor a gap</td></tr>
       <tr><td>6</td><td>Spark batch: bronze &rarr; silver (adjustments) &rarr; gold
-        (cross-sectional features)</td><td>lakehouse</td>
-        <td>A backtest runs off gold</td></tr>
+        (cross-sectional features). <strong>Airflow arrives here</strong> &mdash; this is the
+        first point at which there is a dependency worth expressing</td><td>lakehouse + platform</td>
+        <td>A backtest runs off gold, and re-running a date range is one command</td></tr>
       <tr><td>7</td><td>The one big join that justifies Spark &mdash; match every trade to the
         quote in effect at that instant</td><td>lakehouse</td>
         <td>You can state the before-and-after runtime. That number is the interview
@@ -1859,6 +1904,8 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
   The live bot keeps reading Kafka directly the whole way through, and never depends on Spark for
   anything.</p>
   <!--/lake-->
+
+  
 
   
 

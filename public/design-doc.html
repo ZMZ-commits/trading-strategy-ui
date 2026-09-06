@@ -1639,6 +1639,229 @@ watchlists(id, project_id, ...) labels(id, project_id, ...)</pre>
   nobody has measured that ceiling. Better to find it on a Tuesday than during a demo.</p>
   <!--/signals-->
 
+  <h3 id="lakehouse">Adding the big-data platform &mdash; one feed, two speeds</h3>
+  <p>The reason to run a lakehouse alongside the database is not that a lakehouse is fashionable.
+  It is that <strong>the chart needs an answer in fifty milliseconds and a research question needs
+  ten years of ticks</strong>, and no single store is good at both. Put Kafka in the middle and
+  each side gets what it needs without arguing with the other.</p>
+
+  <figure>
+    <div class="scroll">
+      <svg class="d" viewBox="0 0 1200 490" role="img" aria-labelledby="bdt bdd">
+        <title id="bdt">One feed, two speeds</title>
+        <desc id="bdd">One feed, two speeds. Alpaca reaches the scraper on node-3, which publishes every tick into a single Kafka topic partitioned by symbol. Three consumers read that topic independently. The bot host acts in milliseconds and never touches Spark. The aggregator seals each minute into TimescaleDB, which holds recent bars and the application's own tables and serves the website in seconds. Spark Structured Streaming writes every raw tick into Delta files on MinIO with exactly-once guarantees, and a nightly Spark batch job reads those files back, fixes splits, builds cross-sectional features and writes gold tables the Lab can read. The fast lane never waits on the slow one, and the slow one crashing does not stop trading.</desc>
+        <rect x="20" y="214" width="130" height="52" rx="5" fill="none" stroke="var(--rule)"/>
+        <text x="31" y="235" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Alpaca</text>
+        <text x="31" y="249" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">the feed</text>
+        <circle cx="135" cy="229" r="7.5" fill="var(--gap)" fill-opacity=".14"/><text x="135" y="232.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="var(--gap)">~</text>
+        <rect x="185" y="214" width="145" height="52" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
+        <text x="196" y="235" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Scraper</text>
+        <text x="196" y="249" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">node-3</text>
+        <circle cx="315" cy="229" r="7.5" fill="var(--gap)" fill-opacity=".14"/><text x="315" y="232.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="var(--gap)">~</text>
+        <path d="M150 240 L185 240" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <rect x="370" y="60" width="100" height="390" rx="5" fill="var(--gap-soft)" stroke="var(--gap)"/>
+        <text x="381" y="81" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Kafka</text>
+        <circle cx="455" cy="75" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="455" y="78.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <text x="384" y="96" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">one topic</text>
+        <text x="384" y="110" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">partitioned</text>
+        <text x="384" y="124" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">by symbol</text>
+        <text x="384" y="148" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">everything</text>
+        <text x="384" y="162" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">reads from</text>
+        <text x="384" y="176" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">here</text>
+        <path d="M330 240 L370 240" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <text x="520" y="72" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="var(--p-trade)" letter-spacing=".08em">MILLISECONDS &#183; TRADES</text>
+        <rect x="520" y="82" width="210" height="56" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
+        <text x="531" y="103" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Bot host</text>
+        <text x="531" y="117" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">acts on the sealed bar</text>
+        <circle cx="715" cy="97" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="715" y="100.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <path d="M470 110 L520 110" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <text x="520" y="182" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="var(--p-lab)" letter-spacing=".08em">SECONDS &#183; THE PRODUCT</text>
+        <rect x="520" y="192" width="210" height="56" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
+        <text x="531" y="213" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Aggregator</text>
+        <text x="531" y="227" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">seals each minute</text>
+        <circle cx="715" cy="207" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="715" y="210.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <rect x="790" y="192" width="210" height="56" rx="5" fill="var(--held-soft)" stroke="var(--held)"/>
+        <text x="801" y="213" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">TimescaleDB</text>
+        <text x="801" y="227" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">recent bars + app data</text>
+        <circle cx="985" cy="207" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="985" y="210.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <rect x="1050" y="192" width="130" height="56" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
+        <text x="1061" y="213" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">The website</text>
+        <text x="1061" y="227" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">chart &#183; Lab</text>
+        <circle cx="1165" cy="207" r="7.5" fill="var(--gap)" fill-opacity=".14"/><text x="1165" y="210.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="var(--gap)">~</text>
+        <path d="M470 220 L520 220" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <path d="M730 220 L790 220" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <path d="M1000 220 L1050 220" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <text x="520" y="312" font-family="IBM Plex Mono, monospace" font-size="9" font-weight="600" fill="var(--p-adm)" letter-spacing=".08em">MINUTES &#183; RESEARCH</text>
+        <rect x="520" y="322" width="210" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="531" y="343" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Spark streaming</text>
+        <text x="531" y="357" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">exactly-once writer</text>
+        <circle cx="715" cy="337" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="715" y="340.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <rect x="790" y="322" width="210" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="801" y="343" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Delta on MinIO</text>
+        <text x="801" y="357" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">every raw tick, forever</text>
+        <circle cx="985" cy="337" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="985" y="340.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <rect x="790" y="402" width="210" height="56" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="801" y="423" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Spark batch</text>
+        <text x="801" y="437" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">nightly &#183; the heavy work</text>
+        <circle cx="985" cy="417" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="985" y="420.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <rect x="1050" y="402" width="130" height="56" rx="5" fill="var(--ground)" stroke="var(--rule)"/>
+        <text x="1061" y="423" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="currentColor">Gold</text>
+        <text x="1061" y="437" font-family="IBM Plex Mono, monospace" font-size="8" fill="currentColor" opacity=".55">features</text>
+        <circle cx="1165" cy="417" r="7.5" fill="currentColor" fill-opacity=".07"/><text x="1165" y="420.4" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" font-weight="600" fill="currentColor" opacity=".45">+</text>
+        <path d="M470 350 L520 350" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <path d="M730 350 L790 350" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <path d="M840 378 L840 402" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <text x="848" y="394" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">read</text>
+        <path d="M950 402 L950 378" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <text x="898" y="394" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">write</text>
+        <path d="M1000 430 L1050 430" fill="none" stroke="currentColor" stroke-opacity=".45" marker-end="url(#bda)"/>
+        <path d="M1115 402 L1115 248" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-dasharray="4 3" marker-end="url(#bda)"/>
+        <text x="1052" y="330" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">the Lab reads</text>
+        <text x="1052" y="344" font-family="IBM Plex Mono, monospace" font-size="8.5" fill="currentColor" opacity=".55">features back</text>
+        <defs><marker id="bda" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="currentColor" fill-opacity=".45"/></marker></defs>
+      </svg>
+    </div>
+    <figcaption>The fast lane feeds the product; the slow lane feeds research. The slow lane
+    failing must never stop a trade &mdash; which is the whole reason they are separated by a
+    queue rather than a function call.</figcaption>
+  </figure>
+
+  <div class="callout good">
+    <h3>What each new piece is actually for</h3>
+    <ul>
+      <li><strong>MinIO</strong> &mdash; a file store that speaks S3. Holds every raw tick,
+      forever, cheaply. The reason not to use a plain folder: Spark running as several workers
+      needs one address they can all reach, and <code>s3a://</code> paths move to AWS unchanged
+      the day you want them to.</li>
+      <li><strong>Delta</strong> &mdash; the file format on top of those files. Gives updates,
+      undo, and time travel over what would otherwise be a pile of Parquet. It is also
+      byte-for-byte the format Databricks uses, so nothing needs converting later.</li>
+      <li><strong>Spark, first job</strong> &mdash; the safe writer. Takes ticks off Kafka and
+      lands them in Delta so that a crash <em>mid-write</em> neither duplicates a tick nor drops
+      one. Hand-rolling that correctly is genuinely hard, and getting it wrong leaves an archive
+      that is quietly wrong.</li>
+      <li><strong>Spark, second job</strong> &mdash; the nightly cruncher. Fix ten years of
+      splits, and <strong>rank every symbol against every other symbol at each minute</strong>.
+      That second one is the real dividing line: looping symbol by symbol is easy, holding all of
+      them at once is not.</li>
+      <li><strong>Unity Catalog</strong> &mdash; an index of what tables exist and who may read
+      them. Same API as the managed version.</li>
+    </ul>
+    <p><strong>TimescaleDB stays, and its job gets smaller.</strong> It stops being the archive and
+    becomes what Postgres is best at: the application database plus recent bars for serving. And
+    since TimescaleDB <em>is</em> Postgres, it already fills the &ldquo;Postgres for orders and
+    positions&rdquo; slot &mdash; there is no second database to run. Keep the app tables and the
+    bars in separate schemas so their backups can differ: orders are tiny and irreplaceable, bars
+    are huge and re-downloadable.</p>
+  </div>
+
+  <div class="callout warn">
+    <h3>Honestly: at eight symbols none of this earns its keep</h3>
+    <p>Python does all of the above today. The line where Spark starts to win is roughly
+    <strong>thousands of symbols, years of history, and questions that compare symbols to each
+    other</strong> rather than processing them one at a time. Ten years of minute bars for the
+    whole market is 100&ndash;200 GB &mdash; large, but a single machine with a fast disk handles
+    that.</p>
+    <p>That is not an argument against building it. It is the argument for <strong>building it
+    after the thing it serves works</strong>, and for being able to say in an interview which
+    specific query justified it rather than that you wanted Spark on a CV.</p>
+  </div>
+
+  <h3 id="repo-ownership">What goes in which repository</h3>
+  <p>Two rules decide every case, and both are checkable rather than a matter of taste:</p>
+  <div class="callout good">
+    <p><strong><code>data-pipeline</code> never imports Spark.<br>
+    <code>lakehouse</code> never holds an API key.</strong></p>
+    <p>If either is ever violated, something has been put in the wrong place. That is a rule you
+    can grep for; &ldquo;which repo feels more like ingestion&rdquo; is not.</p>
+  </div>
+  <table>
+    <thead><tr><th>Repository</th><th>Owns</th><th>Work needed</th></tr></thead>
+    <tbody>
+      <tr><td><code>trading-strategy-platform</code><br><em>the meta repo</em></td>
+        <td>Terraform, Kubernetes manifests, Helm/ArgoCD, compose files, cross-repo docs, the
+        submodules</td>
+        <td>Rewrite the existing Terraform from AWS to the <code>hcloud</code> provider; add
+        <code>infrastructure/k8s/</code></td></tr>
+      <tr><td><code>trading-strategy-data-pipeline</code></td>
+        <td><strong>Everything that talks to Alpaca, and nothing else.</strong> The websocket
+        reader publishing to Kafka, and the resumable REST backfill writing raw Parquet into a
+        landing prefix on MinIO. Small, always-on, pure Python.</td>
+        <td>Publish to Kafka alongside the existing Redis fan-out; add the backfill</td></tr>
+      <tr><td><strong><code>trading-strategy-lakehouse</code></strong><br><em>new</em></td>
+        <td><strong>Everything Spark or Delta.</strong> The exactly-once Kafka&rarr;bronze writer,
+        landing&rarr;bronze, bronze&rarr;silver&rarr;gold, dbt tests, the trade-to-quote join.
+        Reads tables and files; never calls a provider.</td>
+        <td>Create it</td></tr>
+      <tr><td><code>trading-strategy-backend</code></td>
+        <td>The HTTP and websocket API the website calls</td>
+        <td>Gains a database driver it does not currently have</td></tr>
+      <tr><td><code>trading-strategy-engine</code></td>
+        <td>The strategy SDK, the sandbox worker, <strong>and the live bot runner</strong></td>
+        <td>Add the live runner here &mdash; the design promise is that a strategy runs
+        identically in backtest and live, and keeping both runners beside the same SDK makes that
+        structural rather than aspirational</td></tr>
+      <tr><td><code>trading-strategy-ui</code></td><td>The front end</td>
+        <td>None for this</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Why the Kafka&rarr;bronze writer sits in <code>lakehouse</code> despite being
+  ingestion by purpose:</strong> it shares almost no code with the websocket reader &mdash;
+  different library, different protocol, different failure modes &mdash; and shares a great deal
+  with the batch jobs: the Delta schema, the Spark session builder, the MinIO endpoint, the
+  checkpoint-location convention. <strong>Put code where its neighbours are.</strong> The same
+  reasoning keeps the backfill out of Spark: it writes dumb, resumable Parquet into a landing
+  prefix, and Spark picks it up from there, so <code>data-pipeline</code> stays a small
+  always-on process with no heavyweight dependency.</p>
+
+  <h3 id="build-order">Build order</h3>
+  <div class="callout warn">
+    <p><strong>Start with ingestion, not with Kubernetes.</strong> Terraform and k3s are the most
+    interesting part and the most tempting first move, and doing them first is the documented way
+    this kind of project dies: four layers of platform and not one tick ever consumed.</p>
+    <p>There is a practical reason too. Moving a <em>working</em> pipeline into Kubernetes is a
+    contained task with a clear finish line. Building Kubernetes first and then debugging
+    ingestion inside it means debugging two unfamiliar things at once, with no way to tell which
+    one is broken.</p>
+    <p>Step 1 is roughly two hundred lines of Python. It is also the only step that proves any of
+    the rest is worth building.</p>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Step</th><th>Where</th><th>Done when</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Alpaca websocket &rarr; Kafka &rarr; a plain Python consumer writing
+        Parquet. Docker compose, one broker, your laptop</td><td>data-pipeline</td>
+        <td>It runs a full trading week unattended without dropping a tick</td></tr>
+      <tr><td>2</td><td>Historical backfill from Alpaca REST, resumable, pagination cursor
+        checkpointed</td><td>lakehouse</td>
+        <td>You <code>kill -9</code> it mid-run and it resumes exactly where it stopped</td></tr>
+      <tr><td>3</td><td><strong>Fix the three data traps</strong>: point-in-time symbol universe,
+        split and dividend adjustment, and decide IEX-versus-SIP deliberately</td><td>lakehouse</td>
+        <td>A backtest whose numbers you are willing to defend</td></tr>
+      <tr><td>4</td><td>Terraform + k3s on a dedicated box. Move what already works into the
+        cluster: Strimzi for Kafka, MinIO, Postgres, monitoring</td><td>platform</td>
+        <td><code>terraform destroy &amp;&amp; terraform apply</code> brings everything back</td></tr>
+      <tr><td>5</td><td>Spark Structured Streaming replaces the Python consumer. Delta bronze on
+        MinIO</td><td>lakehouse</td>
+        <td>You kill it mid-write and find neither a duplicate nor a gap</td></tr>
+      <tr><td>6</td><td>Spark batch: bronze &rarr; silver (adjustments) &rarr; gold
+        (cross-sectional features)</td><td>lakehouse</td>
+        <td>A backtest runs off gold</td></tr>
+      <tr><td>7</td><td>The one big join that justifies Spark &mdash; match every trade to the
+        quote in effect at that instant</td><td>lakehouse</td>
+        <td>You can state the before-and-after runtime. That number is the interview
+        answer</td></tr>
+      <tr><td>8</td><td>Mirror a slice into Databricks Free Edition with managed Unity
+        Catalog</td><td>lakehouse</td><td>Something you can open and walk someone through</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Do not start a step until the one before it has run unattended for a week.</strong>
+  The live bot keeps reading Kafka directly the whole way through, and never depends on Spark for
+  anything.</p>
+  <!--/lake-->
+
+  
+
   <div class="callout">
     <h3>Reading the pipeline</h3>
     <p>Kafka is drawn as a column because it is a bus, not a step. The scraper publishes ticks into it; the aggregator and analytics each consume independently. <strong>The aggregator then publishes a closed bar back into Kafka</strong>, and the bot host consumes that &mdash; which is why the trigger arrow points out of Kafka rather than out of the aggregator. Kafka carries the trigger, TimescaleDB carries the history.</p>
